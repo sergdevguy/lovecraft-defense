@@ -5,11 +5,11 @@ import {
   Text,
   TextStyle,
 } from 'pixi.js'
-import { distance, pointInRect, vec } from '../domain/geometry'
-import type { Vec2 } from '../domain/geometry'
-import { GameWorld } from '../domain/game'
-import type { TowerKind } from '../domain/game'
 import { SignRecognizer } from '../application/sign-recognizer'
+import type { TowerKind } from '../domain/game'
+import { GameWorld } from '../domain/game'
+import type { Vec2 } from '../domain/geometry'
+import { distance, pointInRect, vec } from '../domain/geometry'
 
 const worldWidth = 980
 const worldHeight = 640
@@ -26,6 +26,8 @@ export class PixiGame {
   private readonly hud = new Text({ text: '', style: this.hudStyle() })
   private readonly hint = new Text({ text: '', style: this.smallStyle(0xd6fff7) })
   private readonly buttons = new Map<TowerKind, Graphics>()
+  private readonly startScreen = new Container()
+  private isGameStarted = false
   private drawingPoints: Vec2[] = []
   private isDrawing = false
   private activePointerId: number | null = null
@@ -44,8 +46,13 @@ export class PixiGame {
 
     element.appendChild(this.app.canvas)
     this.app.stage.addChild(this.root)
-    this.root.addChild(this.board, this.entities, this.drawing, this.hud, this.hint)
+    this.initGameScene()
+  }
+
+  private initGameScene(): void {
+    this.root.addChild(this.board, this.entities, this.drawing, this.hud, this.hint, this.startScreen)
     this.createTowerButtons()
+    this.initStartScreen()
     this.resize()
 
     this.app.canvas.addEventListener('pointerdown', this.onCanvasPointerDown)
@@ -62,7 +69,9 @@ export class PixiGame {
   }
 
   private tick(deltaSeconds: number): void {
-    this.world.update(Math.min(deltaSeconds, 0.05))
+    if (this.isGameStarted) {
+      this.world.update(Math.min(deltaSeconds, 0.05))
+    }
     this.render()
   }
 
@@ -196,6 +205,57 @@ export class PixiGame {
     this.createTowerButton('obelisk', 170, 580, 'Obelisk 68')
   }
 
+  private initStartScreen(): void {
+    const overlay = new Graphics()
+    overlay.rect(0, 0, worldWidth, worldHeight).fill({ color: 0x05080b, alpha: 0.88 })
+    overlay.eventMode = 'static'
+    this.startScreen.addChild(overlay)
+
+    const title = new Text({
+      text: 'Lavcraft Defense',
+      style: new TextStyle({
+        fontFamily: 'Inter, system-ui, sans-serif',
+        fontSize: 42,
+        fill: 0xf5f5dc,
+        fontWeight: 'bold',
+      }),
+    })
+    title.anchor.set(0.5)
+    title.position.set(worldWidth / 2, worldHeight / 2 - 120)
+    this.startScreen.addChild(title)
+
+    const buttonLabels = ['новая игра', 'магазин']
+    buttonLabels.forEach((label, index) => {
+      const button = new Graphics()
+      button.roundRect(0, 0, 240, 56, 12).fill(0x16252c).stroke({ color: 0x81f5e1, width: 2, alpha: 0.85 })
+      button.position.set((worldWidth - 240) / 2, worldHeight / 2 + index * 84)
+      button.eventMode = 'static'
+      button.cursor = 'pointer'
+      button.on('pointertap', () => this.startNewGame())
+
+      const buttonText = new Text({ text: label, style: this.buttonTextStyle() })
+      buttonText.anchor.set(0.5)
+      buttonText.position.set(120, 28)
+      button.addChild(buttonText)
+      this.startScreen.addChild(button)
+    })
+  }
+
+  private startNewGame(): void {
+    this.world.reset()
+    this.isGameStarted = true
+    this.startScreen.visible = false
+  }
+
+  private buttonTextStyle(): TextStyle {
+    return new TextStyle({
+      fontFamily: 'Inter, system-ui, sans-serif',
+      fontSize: 20,
+      fill: 0xf5f5dc,
+      letterSpacing: 0,
+    })
+  }
+
   private createTowerButton(kind: TowerKind, x: number, y: number, label: string): void {
     const button = new Graphics()
     button.label = `button-${kind}`
@@ -268,6 +328,10 @@ export class PixiGame {
   }
 
   private handleInputDown(point: Vec2, pointerId: number): void {
+    if (!this.isGameStarted) {
+      return
+    }
+
     const selectedButton = this.buttonAt(point)
     if (selectedButton) {
       this.world.selectTower(selectedButton)

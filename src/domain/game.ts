@@ -1,5 +1,5 @@
-import { add, clamp, distance, lerp, normalize, scale, vec } from './geometry'
 import type { Vec2 } from './geometry'
+import { add, clamp, distance, lerp, normalize, scale, vec } from './geometry'
 
 export type TowerKind = 'lantern' | 'obelisk'
 
@@ -125,6 +125,25 @@ export class GameWorld {
     this.updateTowers(deltaSeconds)
     this.updateProjectiles(deltaSeconds)
     this.updateFloatingTexts(deltaSeconds)
+  }
+
+  reset(): void {
+    this.monsters.clear()
+    this.towers.clear()
+    this.projectiles.clear()
+    this.floatingTexts.clear()
+    this.towerSlots.forEach((slot) => {
+      slot.occupiedBy = undefined
+    })
+    this.baseHp = 20
+    this.coins = 90
+    this.score = 0
+    this.wave = 1
+    this.time = 0
+    this.spawnTimer = 0
+    this.spawnedInWave = 0
+    this.selectedTower = 'lantern'
+    this.id = 0
   }
 
   selectTower(kind: TowerKind): void {
