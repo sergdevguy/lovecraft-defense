@@ -6,7 +6,7 @@ import {
   TextStyle,
 } from 'pixi.js'
 import { SignRecognizer } from '../application/sign-recognizer'
-import type { TowerKind } from '../domain/game'
+import type { TowerKind, TowerSlot } from '../domain/game'
 import { GameWorld } from '../domain/game'
 import type { Vec2 } from '../domain/geometry'
 import { distance, pointInRect, vec } from '../domain/geometry'
@@ -14,6 +14,18 @@ import { distance, pointInRect, vec } from '../domain/geometry'
 const worldWidth = 980
 const worldHeight = 640
 const ritualRect = { x: 676, y: 70, width: 260, height: 190 }
+const towerMenuRadius = 68
+const towerMenuOptionWidth = 56
+const towerMenuOptionHeight = 58
+const speedButtonSize = 42
+const speedButtonPadding = 16
+
+type TowerMenuOption = {
+  kind: TowerKind
+  center: Vec2
+  width: number
+  height: number
+}
 
 export class PixiGame {
   private readonly app = new Application()
@@ -22,12 +34,17 @@ export class PixiGame {
   private readonly root = new Container()
   private readonly board = new Graphics()
   private readonly entities = new Graphics()
+  private readonly towerMenu = new Container()
+  private readonly speedButton = new Container()
   private readonly drawing = new Graphics()
   private readonly hud = new Text({ text: '', style: this.hudStyle() })
   private readonly hint = new Text({ text: '', style: this.smallStyle(0xd6fff7) })
-  private readonly buttons = new Map<TowerKind, Graphics>()
   private readonly startScreen = new Container()
+  private readonly speedModes = [1, 2, 4] as const
   private isGameStarted = false
+  private speedModeIndex = 0
+  private activeTowerMenuSlotId: string | null = null
+  private towerMenuOptions: TowerMenuOption[] = []
   private drawingPoints: Vec2[] = []
   private isDrawing = false
   private activePointerId: number | null = null
@@ -50,8 +67,8 @@ export class PixiGame {
   }
 
   private initGameScene(): void {
-    this.root.addChild(this.board, this.entities, this.drawing, this.hud, this.hint, this.startScreen)
-    this.createTowerButtons()
+    this.root.addChild(this.board, this.entities, this.towerMenu, this.drawing, this.hud, this.hint, this.speedButton, this.startScreen)
+    this.drawSpeedButton()
     this.initStartScreen()
     this.resize()
 
@@ -70,7 +87,8 @@ export class PixiGame {
 
   private tick(deltaSeconds: number): void {
     if (this.isGameStarted) {
-      this.world.update(Math.min(deltaSeconds, 0.05))
+      const speed = this.speedModes[this.speedModeIndex]
+      this.world.update(Math.min(deltaSeconds * speed, 0.05 * speed))
     }
     this.render()
   }
@@ -133,14 +151,9 @@ export class PixiGame {
 
   private drawTowers(): void {
     for (const tower of this.world.snapshot().towers) {
-      const color = tower.kind === 'lantern' ? 0xfcd34d : 0xc4b5fd
+      const color = this.towerColor(tower.kind)
       this.entities.circle(tower.position.x, tower.position.y, tower.range).stroke({ color, width: 1, alpha: 0.12 })
-      this.entities
-        .rect(tower.position.x - 13, tower.position.y - 19, 26, 38)
-        .fill(0x161d21)
-        .stroke({ color, width: 2 })
-        .circle(tower.position.x, tower.position.y - 16, 8)
-        .fill({ color, alpha: 0.92 })
+      this.drawTowerIcon(this.entities, tower.kind, tower.position.x, tower.position.y, 34)
     }
   }
 
@@ -195,15 +208,12 @@ export class PixiGame {
     const snapshot = this.world.snapshot()
     this.hud.text = `Sanity ${snapshot.baseHp}  |  Coins ${snapshot.coins}  |  Wave ${snapshot.wave}  |  Score ${snapshot.score}`
     this.hud.position.set(34, 24)
-    for (const [kind, button] of this.buttons) {
-      button.alpha = snapshot.selectedTower === kind ? 1 : 0.72
-    }
   }
 
-  private createTowerButtons(): void {
-    this.createTowerButton('lantern', 34, 580, 'Lantern 36')
-    this.createTowerButton('obelisk', 170, 580, 'Obelisk 68')
-  }
+  // private createTowerButtons(): void {
+  //   this.createTowerButton('lantern', 34, 580, 'Lantern 36')
+  //   this.createTowerButton('obelisk', 170, 580, 'Obelisk 68')
+  // }
 
   private initStartScreen(): void {
     const overlay = new Graphics()
@@ -243,6 +253,9 @@ export class PixiGame {
 
   private startNewGame(): void {
     this.world.reset()
+    this.closeTowerMenu()
+    this.speedModeIndex = 0
+    this.drawSpeedButton()
     this.isGameStarted = true
     this.startScreen.visible = false
   }
@@ -256,22 +269,22 @@ export class PixiGame {
     })
   }
 
-  private createTowerButton(kind: TowerKind, x: number, y: number, label: string): void {
-    const button = new Graphics()
-    button.label = `button-${kind}`
-    button.roundRect(0, 0, 118, 38, 7).fill(0x182629).stroke({ color: 0x81f5e1, width: 1, alpha: 0.75 })
-    button.position.set(x, y)
-    button.eventMode = 'static'
-    button.cursor = 'pointer'
-    button.on('pointertap', () => this.world.selectTower(kind))
-
-    const text = new Text({ text: label, style: this.smallStyle(0xf5f5dc) })
-    text.anchor.set(0.5)
-    text.position.set(59, 19)
-    button.addChild(text)
-    this.buttons.set(kind, button)
-    this.root.addChild(button)
-  }
+  // private createTowerButton(kind: TowerKind, x: number, y: number, label: string): void {
+  //   const button = new Graphics()
+  //   button.label = `button-${kind}`
+  //   button.roundRect(0, 0, 118, 38, 7).fill(0x182629).stroke({ color: 0x81f5e1, width: 1, alpha: 0.75 })
+  //   button.position.set(x, y)
+  //   button.eventMode = 'static'
+  //   button.cursor = 'pointer'
+  //   button.on('pointertap', () => this.world.selectTower(kind))
+  //
+  //   const text = new Text({ text: label, style: this.smallStyle(0xf5f5dc) })
+  //   text.anchor.set(0.5)
+  //   text.position.set(59, 19)
+  //   button.addChild(text)
+  //   this.buttons.set(kind, button)
+  //   this.root.addChild(button)
+  // }
 
   private onCanvasPointerDown = (event: PointerEvent): void => {
     event.preventDefault()
@@ -332,17 +345,30 @@ export class PixiGame {
       return
     }
 
-    const selectedButton = this.buttonAt(point)
-    if (selectedButton) {
-      this.world.selectTower(selectedButton)
+    if (this.speedButtonAt(point)) {
+      this.cycleGameSpeed()
+      return
+    }
+
+    const menuOption = this.towerMenuOptionAt(point)
+    if (menuOption && this.activeTowerMenuSlotId) {
+      if (this.world.buildTower(this.activeTowerMenuSlotId, menuOption)) {
+        this.closeTowerMenu()
+      }
       return
     }
 
     const slot = this.world.snapshot().towerSlots.find((candidate) => distance(candidate.position, point) < 28)
     if (slot) {
-      this.world.buildTower(slot.id)
+      if (!slot.occupiedBy) {
+        this.openTowerMenu(slot)
+      } else {
+        this.closeTowerMenu()
+      }
       return
     }
+
+    this.closeTowerMenu()
 
     if (pointInRect(point, ritualRect)) {
       this.isDrawing = true
@@ -377,14 +403,172 @@ export class PixiGame {
     window.setTimeout(() => this.drawing.clear(), 180)
   }
 
-  private buttonAt(point: Vec2): TowerKind | null {
-    if (point.x >= 34 && point.x <= 152 && point.y >= 580 && point.y <= 618) {
-      return 'lantern'
+  private openTowerMenu(slot: TowerSlot): void {
+    if (this.activeTowerMenuSlotId === slot.id) {
+      return
     }
-    if (point.x >= 170 && point.x <= 288 && point.y >= 580 && point.y <= 618) {
-      return 'obelisk'
+
+    this.closeTowerMenu()
+    this.activeTowerMenuSlotId = slot.id
+
+    const ring = new Graphics()
+    ring
+      .circle(slot.position.x, slot.position.y, 33)
+      .stroke({ color: 0x81f5e1, width: 2, alpha: 0.9 })
+      .circle(slot.position.x, slot.position.y, 40)
+      .stroke({ color: 0x81f5e1, width: 1, alpha: 0.28 })
+    this.towerMenu.addChild(ring)
+
+    const options: Array<{ kind: TowerKind, angle: number }> = [
+      { kind: 'lantern', angle: -Math.PI * 0.75 },
+      { kind: 'idol', angle: -Math.PI / 2 },
+      { kind: 'obelisk', angle: -Math.PI * 0.25 },
+    ]
+
+    for (const option of options) {
+      const color = this.towerColor(option.kind)
+      const center = vec(
+        slot.position.x + Math.cos(option.angle) * towerMenuRadius,
+        slot.position.y + Math.sin(option.angle) * towerMenuRadius,
+      )
+      this.towerMenuOptions.push({
+        kind: option.kind,
+        center,
+        width: towerMenuOptionWidth,
+        height: towerMenuOptionHeight,
+      })
+
+      const optionGroup = new Container()
+      optionGroup.position.set(center.x, center.y)
+      optionGroup.eventMode = 'static'
+      optionGroup.cursor = 'pointer'
+
+      const plate = new Graphics()
+      plate
+        .roundRect(-towerMenuOptionWidth / 2, -towerMenuOptionHeight / 2, towerMenuOptionWidth, towerMenuOptionHeight, 8)
+        .fill({ color: 0x16252c, alpha: 0.96 })
+        .stroke({ color, width: 2, alpha: 0.88 })
+      plate.eventMode = 'static'
+      plate.cursor = 'pointer'
+
+      const icon = new Graphics()
+      this.drawTowerIcon(icon, option.kind, 0, -9, 22)
+
+      const text = new Text({ text: String(this.world.getTowerCost(option.kind)), style: this.smallStyle(0xf5f5dc) })
+      text.anchor.set(0.5)
+      text.position.set(0, 17)
+
+      optionGroup.addChild(plate, icon, text)
+      this.towerMenu.addChild(optionGroup)
+    }
+  }
+
+  private closeTowerMenu(): void {
+    for (const child of this.towerMenu.removeChildren()) {
+      child.destroy({ children: true })
+    }
+    this.activeTowerMenuSlotId = null
+    this.towerMenuOptions = []
+  }
+
+  private towerMenuOptionAt(point: Vec2): TowerKind | null {
+    for (const option of this.towerMenuOptions) {
+      const isInsideX = Math.abs(point.x - option.center.x) <= option.width / 2
+      const isInsideY = Math.abs(point.y - option.center.y) <= option.height / 2
+      if (isInsideX && isInsideY) {
+        return option.kind
+      }
     }
     return null
+  }
+
+  private drawSpeedButton(): void {
+    for (const child of this.speedButton.removeChildren()) {
+      child.destroy({ children: true })
+    }
+
+    const x = worldWidth - speedButtonPadding - speedButtonSize
+    const y = worldHeight - speedButtonPadding - speedButtonSize
+    this.speedButton.position.set(x, y)
+    this.speedButton.eventMode = 'static'
+    this.speedButton.cursor = 'pointer'
+
+    const plate = new Graphics()
+    plate
+      .roundRect(0, 0, speedButtonSize, speedButtonSize, 8)
+      .fill({ color: 0x16252c, alpha: 0.96 })
+      .stroke({ color: 0x81f5e1, width: 2, alpha: 0.86 })
+    plate.eventMode = 'static'
+    plate.cursor = 'pointer'
+
+    const icon = new Graphics()
+    this.drawSpeedChevrons(icon, this.speedModes[this.speedModeIndex], speedButtonSize / 2, speedButtonSize / 2)
+
+    this.speedButton.addChild(plate, icon)
+  }
+
+  private cycleGameSpeed(): void {
+    this.speedModeIndex = (this.speedModeIndex + 1) % this.speedModes.length
+    this.drawSpeedButton()
+  }
+
+  private speedButtonAt(point: Vec2): boolean {
+    const left = worldWidth - speedButtonPadding - speedButtonSize
+    const top = worldHeight - speedButtonPadding - speedButtonSize
+    return point.x >= left && point.x <= left + speedButtonSize && point.y >= top && point.y <= top + speedButtonSize
+  }
+
+  private drawSpeedChevrons(graphics: Graphics, count: number, x: number, y: number): void {
+    const spacing = 6
+    const width = 6
+    const height = 12
+    const startX = x - ((count - 1) * spacing + width) / 2
+
+    for (let index = 0; index < count; index += 1) {
+      const chevronX = startX + index * spacing
+      graphics
+        .moveTo(chevronX - width / 2, y - height / 2)
+        .lineTo(chevronX + width / 2, y)
+        .lineTo(chevronX - width / 2, y + height / 2)
+        .stroke({ color: 0xf5f5dc, width: 2, alpha: 0.95, cap: 'round', join: 'round' })
+    }
+  }
+
+  private drawTowerIcon(graphics: Graphics, kind: TowerKind, x: number, y: number, size: number): void {
+    const color = this.towerColor(kind)
+    const half = size / 2
+
+    graphics.circle(x, y, half + 4).fill({ color: 0x071112, alpha: 0.92 })
+
+    if (kind === 'lantern') {
+      graphics.circle(x, y, half).fill({ color, alpha: 0.94 }).stroke({ color: 0xfef3c7, width: 2, alpha: 0.8 })
+      graphics.circle(x - half * 0.28, y - half * 0.28, half * 0.22).fill({ color: 0xfffbeb, alpha: 0.9 })
+      return
+    }
+
+    if (kind === 'obelisk') {
+      graphics.rect(x - half, y - half, size, size).fill({ color, alpha: 0.9 }).stroke({ color: 0xf5f3ff, width: 2, alpha: 0.75 })
+      graphics.rect(x - half * 0.48, y - half * 0.48, size * 0.38, size * 0.38).fill({ color: 0xede9fe, alpha: 0.5 })
+      return
+    }
+
+    graphics
+      .poly([x, y - half, x + half, y + half, x - half, y + half], true)
+      .fill({ color, alpha: 0.94 })
+      .stroke({ color: 0xecfeff, width: 2, alpha: 0.78 })
+    graphics
+      .poly([x, y - half * 0.42, x + half * 0.36, y + half * 0.38, x - half * 0.36, y + half * 0.38], true)
+      .fill({ color: 0xccfbf1, alpha: 0.36 })
+  }
+
+  private towerColor(kind: TowerKind): number {
+    if (kind === 'lantern') {
+      return 0xfcd34d
+    }
+    if (kind === 'obelisk') {
+      return 0xc4b5fd
+    }
+    return 0x5eead4
   }
 
   private toWorldFromEvent(event: MouseEvent | PointerEvent): Vec2 {

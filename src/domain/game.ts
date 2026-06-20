@@ -1,7 +1,7 @@
 import type { Vec2 } from './geometry'
 import { add, clamp, distance, lerp, normalize, scale, vec } from './geometry'
 
-export type TowerKind = 'lantern' | 'obelisk'
+export type TowerKind = 'lantern' | 'obelisk' | 'idol'
 
 export type SignKind = 'banish' | 'elder' | 'spiral'
 
@@ -71,13 +71,21 @@ const monsterBook: Record<Monster['kind'], Omit<Monster, 'id' | 'position' | 'pa
 }
 
 const towerBook: Record<TowerKind, Omit<Tower, 'id' | 'position' | 'cooldown'>> = {
-  lantern: { kind: 'lantern', range: 130, fireRate: 0.78, damage: 15 },
-  obelisk: { kind: 'obelisk', range: 185, fireRate: 1.45, damage: 37 },
+  lantern: { kind: 'lantern', range: 140, fireRate: 0.50, damage: 15 },
+  obelisk: { kind: 'obelisk', range: 100, fireRate: 1.50, damage: 35 },
+  idol: { kind: 'idol', range: 200, fireRate: 2.50, damage: 50 },
 }
 
 const towerCost: Record<TowerKind, number> = {
   lantern: 36,
   obelisk: 68,
+  idol: 52,
+}
+
+const projectileSpeed: Record<TowerKind, number> = {
+  lantern: 400,
+  obelisk: 300,
+  idol: 500,
 }
 
 export class GameWorld {
@@ -154,23 +162,23 @@ export class GameWorld {
     return towerCost[kind]
   }
 
-  buildTower(slotId: string): boolean {
+  buildTower(slotId: string, kind = this.selectedTower): boolean {
     const slot = this.towerSlots.find((candidate) => candidate.id === slotId)
-    if (!slot || slot.occupiedBy || this.coins < towerCost[this.selectedTower]) {
+    if (!slot || slot.occupiedBy || this.coins < towerCost[kind]) {
       return false
     }
 
     const tower: Tower = {
-      ...towerBook[this.selectedTower],
+      ...towerBook[kind],
       id: this.nextId('tower'),
       position: slot.position,
       cooldown: 0,
     }
 
-    this.coins -= towerCost[this.selectedTower]
+    this.coins -= towerCost[kind]
     slot.occupiedBy = tower.id
     this.towers.set(tower.id, tower)
-    this.say(slot.position, this.selectedTower === 'lantern' ? 'lantern' : 'obelisk', 0xd8f4ff)
+    this.say(slot.position, kind, 0xd8f4ff)
     return true
   }
 
@@ -308,7 +316,7 @@ export class GameWorld {
         id: projectileId,
         position: tower.position,
         targetId: target.id,
-        speed: tower.kind === 'lantern' ? 420 : 310,
+        speed: projectileSpeed[tower.kind],
         damage: tower.damage,
       })
       tower.cooldown = tower.fireRate
