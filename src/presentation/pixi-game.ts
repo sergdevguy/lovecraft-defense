@@ -152,6 +152,7 @@ export class PixiGame {
   private readonly speedModes = [1, 2, 4] as const
   private screen: ScreenState = 'mainMenu'
   private selectedLevelId = 1
+  private unlockedLevelId = 1
   private speedModeIndex = 0
   private activeTowerMenuSlotId: string | null = null
   private activeTowerActionTowerId: string | null = null
@@ -491,6 +492,11 @@ export class PixiGame {
   }
 
   private startLevel(levelId: number): void {
+    if (levelId > this.unlockedLevelId) {
+      this.audio.playUi()
+      return
+    }
+
     this.audio.startTheme()
     this.selectedLevelId = levelId
     this.world.reset(levelId)
@@ -514,6 +520,10 @@ export class PixiGame {
     this.clearScreenLayer()
 
     const snapshot = this.world.snapshot()
+    if (status === 'victory') {
+      this.unlockNextLevel()
+    }
+
     const overlay = new Container()
     const shade = new Graphics()
     shade.rect(0, 0, worldWidth, worldHeight).fill({ color: 0x030607, alpha: 0.58 })
@@ -556,7 +566,7 @@ export class PixiGame {
 
   private startNextLevel(): void {
     const nextLevelId = this.selectedLevelId + 1
-    if (levels.some((level) => level.id === nextLevelId)) {
+    if (nextLevelId <= this.unlockedLevelId && levels.some((level) => level.id === nextLevelId)) {
       this.startLevel(nextLevelId)
       return
     }
@@ -564,29 +574,49 @@ export class PixiGame {
     this.showLevelSelect()
   }
 
+  private unlockNextLevel(): void {
+    const nextLevelId = this.selectedLevelId + 1
+    if (levels.some((level) => level.id === nextLevelId)) {
+      this.unlockedLevelId = Math.max(this.unlockedLevelId, nextLevelId)
+    }
+  }
+
   private createLevelCard(level: LevelConfig, x: number, y: number): Container {
+    const locked = level.id > this.unlockedLevelId
     const card = new Container()
     card.position.set(x, y)
-    card.eventMode = 'static'
-    card.cursor = 'pointer'
+    card.eventMode = locked ? 'none' : 'static'
+    card.cursor = locked ? 'default' : 'pointer'
     card.on('pointertap', () => {
       this.audio.playUi()
       this.startLevel(level.id)
     })
 
     const frame = new Graphics()
-    this.drawPanel(frame, 0, 0, 232, 132, 0x0b1113, level.accentColor)
+    this.drawPanel(frame, 0, 0, 232, 132, locked ? 0x0f1112 : 0x0b1113, locked ? 0x4b5563 : level.accentColor)
     card.addChild(frame)
 
-    const number = new Text({ text: `0${level.id}`, style: this.titleStyle(30, level.accentColor) })
+    const number = new Text({ text: `0${level.id}`, style: this.titleStyle(30, locked ? 0x6b7280 : level.accentColor) })
     number.position.set(18, 16)
-    const name = new Text({ text: level.name, style: this.labelStyle(0xf5f5dc, 17) })
+    const name = new Text({ text: level.name, style: this.labelStyle(locked ? 0x8c948d : 0xf5f5dc, 17) })
     name.position.set(72, 24)
-    const subtitle = new Text({ text: level.subtitle, style: this.smallStyle(0xb7bcae) })
+    const subtitle = new Text({ text: level.subtitle, style: this.smallStyle(locked ? 0x6b7280 : 0xb7bcae) })
     subtitle.position.set(20, 70)
-    const waves = new Text({ text: `${level.maxWave} WAVES`, style: this.labelStyle(level.accentColor, 13) })
+    const waves = new Text({ text: `${level.maxWave} WAVES`, style: this.labelStyle(locked ? 0x6b7280 : level.accentColor, 13) })
     waves.position.set(20, 104)
     card.addChild(number, name, subtitle, waves)
+
+    if (locked) {
+      const lockOverlay = new Graphics()
+      lockOverlay.roundRect(0, 0, 232, 132, 7).fill({ color: 0x030607, alpha: 0.42 })
+      lockOverlay.circle(188, 98, 15).stroke({ color: 0x9ca3af, width: 2, alpha: 0.74 })
+      lockOverlay.rect(177, 96, 22, 16).fill({ color: 0x111827, alpha: 0.92 }).stroke({ color: 0x9ca3af, width: 2, alpha: 0.78 })
+      const lockedText = new Text({ text: 'LOCKED', style: this.labelStyle(0x9ca3af, 12) })
+      lockedText.anchor.set(0.5)
+      lockedText.position.set(116, 104)
+      card.addChild(lockOverlay, lockedText)
+    }
+
     return card
   }
 
