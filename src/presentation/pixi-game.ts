@@ -6,10 +6,6 @@ import {
   TextStyle,
 } from 'pixi.js'
 import { SignRecognizer } from '../application/sign-recognizer'
-import type { GameSoundEvent, GameStatus, LevelConfig, TowerKind, TowerSlot } from '../domain/game'
-import { GameWorld, levels } from '../domain/game'
-import type { Vec2 } from '../domain/geometry'
-import { distance, pointInRect, vec } from '../domain/geometry'
 import enemyDeathSoundUrl from '../assets/audio/enemy_death.wav'
 import gameThemeUrl from '../assets/audio/game_theme.ogg'
 import defeatSoundUrl from '../assets/audio/loose.wav'
@@ -18,6 +14,10 @@ import towerLanternShootUrl from '../assets/audio/tower_lantern_shoot.wav'
 import towerObeliskShootUrl from '../assets/audio/tower_obelisc_shoot.wav'
 import uiClickSoundUrl from '../assets/audio/ui-clicks.wav'
 import victorySoundUrl from '../assets/audio/win.wav'
+import type { GameSoundEvent, GameStatus, LevelConfig, TowerKind, TowerSlot } from '../domain/game'
+import { GameWorld, levels } from '../domain/game'
+import type { Vec2 } from '../domain/geometry'
+import { distance, pointInRect, vec } from '../domain/geometry'
 
 const worldWidth = 1180
 const worldHeight = 720
@@ -78,7 +78,6 @@ class AudioMixer {
 
   playUi(): void {
     this.play('uiClick')
-    this.startTheme()
   }
 
   playWorldEvent(event: GameSoundEvent): void {
@@ -235,7 +234,12 @@ export class PixiGame {
     this.hud.clear()
     this.hudText.removeChildren().forEach((child) => child.destroy())
 
-    this.drawBackground()
+    if (this.screen === 'mainMenu') {
+      this.drawMenuBackground()
+    } else {
+      this.drawBackground()
+    }
+
     if (this.screen === 'playing' || this.screen === 'victory' || this.screen === 'defeat') {
       this.drawPath(snapshot.path)
       this.drawTowerSlots()
@@ -248,6 +252,19 @@ export class PixiGame {
     } else {
       this.hint.text = ''
     }
+  }
+
+  private drawMenuBackground(): void {
+    this.board.rect(0, 0, worldWidth, worldHeight).fill(0x060a0c)
+
+    for (let index = 0; index < 16; index += 1) {
+      const x = 94 + index * 72
+      const y = 86 + (index % 4) * 118
+      this.board.circle(x, y, 74 + (index % 3) * 20).fill({ color: 0x0f2426, alpha: 0.14 })
+    }
+
+    this.board.circle(worldWidth / 2, worldHeight / 2, 240).stroke({ color: 0x2dd4bf, width: 2, alpha: 0.08 })
+    this.board.circle(worldWidth / 2, worldHeight / 2, 128).stroke({ color: 0xf5f5dc, width: 1, alpha: 0.06 })
   }
 
   private drawBackground(): void {
@@ -446,7 +463,7 @@ export class PixiGame {
 
     const overlay = this.screenOverlay()
     const panel = new Container()
-    panel.position.set(76, 122)
+    panel.position.set((worldWidth - 360) / 2, (worldHeight - 430) / 2)
     const frame = new Graphics()
     this.drawPanel(frame, 0, 0, 360, 430, 0x0b1113, 0x344247)
     panel.addChild(frame)
@@ -458,13 +475,13 @@ export class PixiGame {
     subtitle.anchor.set(0.5)
     subtitle.position.set(180, 132)
     panel.addChild(title, subtitle)
-    panel.addChild(this.createMenuButton(94, 194, 172, 42, 'START', () => this.showLevelSelect()))
-    panel.addChild(this.createMenuButton(94, 248, 172, 42, 'LEVELS', () => this.showLevelSelect()))
-    panel.addChild(this.createMenuButton(94, 302, 172, 42, 'SETTINGS', () => undefined))
+    panel.addChild(this.createMenuButton(94, 218, 172, 42, 'START', () => this.showLevelSelect()))
+    panel.addChild(this.createMenuButton(94, 268, 172, 42, 'LEVELS', () => this.showLevelSelect()))
+    // panel.addChild(this.createMenuButton(94, 302, 172, 42, 'SETTINGS', () => undefined))
 
     const note = new Text({ text: 'Six cursed routes. Twelve waves each.', style: this.smallStyle(0xb7bcae) })
     note.anchor.set(0.5)
-    note.position.set(180, 372)
+    note.position.set(180, 370)
     panel.addChild(note)
 
     overlay.addChild(panel)
@@ -608,7 +625,7 @@ export class PixiGame {
 
     if (locked) {
       const lockOverlay = new Graphics()
-      lockOverlay.roundRect(0, 0, 232, 132, 7).fill({ color: 0x030607, alpha: 0.42 })
+      lockOverlay.roundRect(0, 0, 232, 132, 7).fill({ color: 0x030607, alpha: 0.84 })
       lockOverlay.circle(188, 98, 15).stroke({ color: 0x9ca3af, width: 2, alpha: 0.74 })
       lockOverlay.rect(177, 96, 22, 16).fill({ color: 0x111827, alpha: 0.92 }).stroke({ color: 0x9ca3af, width: 2, alpha: 0.78 })
       const lockedText = new Text({ text: 'LOCKED', style: this.labelStyle(0x9ca3af, 12) })
