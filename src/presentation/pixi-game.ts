@@ -19,9 +19,9 @@ import { GameWorld, levels } from '../domain/game'
 import type { Vec2 } from '../domain/geometry'
 import { distance, vec } from '../domain/geometry'
 
-const worldWidth = 882
+const worldWidth = 850
 const worldHeight = 720
-const playRect = { x: 26, y: 76, width: 830, height: 560 }
+const playRect = { x: 10, y: 76, width: 830, height: 560 }
 const playFramePadding = 10
 // const sidebarRect = { x: 884, y: 28, width: 270, height: 596 }
 // const ritualRect = { x: 906, y: 86, width: 226, height: 174 }
@@ -350,8 +350,9 @@ export class PixiGame {
       }
     }
 
-    this.board.circle(850, 302, 42).fill({ color: 0x180f12, alpha: 0.95 }).stroke({ color: 0x9d2d36, width: 3 })
-    this.board.circle(850, 302, 18).fill({ color: 0x7f1d1d, alpha: 0.8 })
+    const portal = path[path.length - 1]
+    this.board.circle(portal.x, portal.y, 42).fill({ color: 0x180f12, alpha: 0.95 }).stroke({ color: 0x9d2d36, width: 3 })
+    this.board.circle(portal.x, portal.y, 18).fill({ color: 0x7f1d1d, alpha: 0.8 })
   }
 
   private drawTowerSlots(): void {

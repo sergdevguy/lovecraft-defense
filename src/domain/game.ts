@@ -126,22 +126,22 @@ export class GameWorld {
   private readonly projectiles = new Map<string, Projectile>()
   private readonly floatingTexts = new Map<string, FloatingText>()
   private readonly path = [
-    vec(-35, 348),
-    vec(130, 348),
-    vec(200, 232),
-    vec(360, 232),
-    vec(455, 442),
-    vec(620, 442),
-    vec(720, 302),
-    vec(850, 302),
+    vec(-51, 348),
+    vec(114, 348),
+    vec(184, 232),
+    vec(344, 232),
+    vec(439, 442),
+    vec(604, 442),
+    vec(704, 302),
+    vec(834, 302),
   ]
   private readonly towerSlots: TowerSlot[] = [
-    { id: 'slot-1', position: vec(150, 246) },
-    { id: 'slot-2', position: vec(270, 330) },
-    { id: 'slot-3', position: vec(390, 146) },
-    { id: 'slot-4', position: vec(510, 346) },
-    { id: 'slot-5', position: vec(615, 542) },
-    { id: 'slot-6', position: vec(760, 396) },
+    { id: 'slot-1', position: vec(134, 246) },
+    { id: 'slot-2', position: vec(254, 330) },
+    { id: 'slot-3', position: vec(374, 146) },
+    { id: 'slot-4', position: vec(494, 346) },
+    { id: 'slot-5', position: vec(599, 542) },
+    { id: 'slot-6', position: vec(744, 396) },
   ]
   private baseHp = 20
   private coins = 90
@@ -358,7 +358,7 @@ export class GameWorld {
         if (this.wave >= this.currentLevel.maxWave) {
           this.status = 'victory'
           this.emitSound({ kind: 'victory' })
-          this.say(vec(492, 86), 'victory', 0xbbf7d0)
+          this.say(vec(476, 86), 'victory', 0xbbf7d0)
           return
         }
 
@@ -366,7 +366,7 @@ export class GameWorld {
         this.spawnedInWave = 0
         this.spawnTimer = 1.4
         this.coins += 22
-        this.say(vec(492, 86), `wave ${this.wave}`, 0xfff7bc)
+        this.say(vec(476, 86), `wave ${this.wave}`, 0xfff7bc)
       }
       return
     }
@@ -408,7 +408,7 @@ export class GameWorld {
       } else if (monster.pathProgress >= 1) {
         this.monsters.delete(monster.id)
         this.baseHp -= monster.kind === 'shoggoth' ? 3 : 1
-        this.say(vec(904, 252), '-sanity', 0xff8e8e)
+        this.say(vec(828, 252), '-sanity', 0xff8e8e)
         if (this.baseHp <= 0) {
           this.baseHp = 0
           this.status = 'defeat'
