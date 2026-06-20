@@ -112,37 +112,163 @@ const projectileSpeed: Record<TowerKind, number> = {
 }
 
 export const levels: readonly LevelConfig[] = [
-  { id: 1, name: 'Innsmouth Coast', subtitle: 'A drowned road under watchful stars', accentColor: 0x81f5e1, difficultyMultiplier: 1, maxWave: 12 },
-  { id: 2, name: 'Black Reef', subtitle: 'The tide brings older hunger', accentColor: 0x67e8f9, difficultyMultiplier: 1.18, maxWave: 12 },
-  { id: 3, name: 'Miskatonic Gate', subtitle: 'Ruins breathe beneath the stones', accentColor: 0xc4b5fd, difficultyMultiplier: 1.38, maxWave: 12 },
-  { id: 4, name: "R'lyeh Shoals", subtitle: 'Geometry bends toward the deep', accentColor: 0x5eead4, difficultyMultiplier: 1.62, maxWave: 12 },
-  { id: 5, name: 'Elder Causeway', subtitle: 'No lantern burns without a cost', accentColor: 0xfcd34d, difficultyMultiplier: 1.9, maxWave: 12 },
-  { id: 6, name: 'The Sunken Throne', subtitle: 'The dreamer stirs below', accentColor: 0xfb7185, difficultyMultiplier: 2.25, maxWave: 12 },
+  { id: 1, name: 'Innsmouth Coast', subtitle: 'A drowned road under watchful stars', accentColor: 0x81f5e1, difficultyMultiplier: 1, maxWave: 1 },
+  { id: 2, name: 'Black Reef', subtitle: 'The tide brings older hunger', accentColor: 0x67e8f9, difficultyMultiplier: 1.18, maxWave: 1 },
+  { id: 3, name: 'Miskatonic Gate', subtitle: 'Ruins breathe beneath the stones', accentColor: 0xc4b5fd, difficultyMultiplier: 1.38, maxWave: 1 },
+  { id: 4, name: "R'lyeh Shoals", subtitle: 'Geometry bends toward the deep', accentColor: 0x5eead4, difficultyMultiplier: 1.62, maxWave: 1 },
+  { id: 5, name: 'Elder Causeway', subtitle: 'No lantern burns without a cost', accentColor: 0xfcd34d, difficultyMultiplier: 1.9, maxWave: 1 },
+  { id: 6, name: 'The Sunken Throne', subtitle: 'The dreamer stirs below', accentColor: 0xfb7185, difficultyMultiplier: 2.25, maxWave: 1 },
 ]
+
+type LevelLayout = Readonly<{
+  path: readonly Vec2[]
+  towerSlots: readonly Readonly<Pick<TowerSlot, 'id' | 'position'>>[]
+}>
+
+const levelLayouts: Record<number, LevelLayout> = {
+  1: {
+    path: [
+      vec(-51, 348),
+      vec(114, 348),
+      vec(184, 232),
+      vec(344, 232),
+      vec(439, 442),
+      vec(604, 442),
+      vec(704, 302),
+      vec(834, 302),
+    ],
+    towerSlots: [
+      { id: 'slot-1', position: vec(134, 186) },
+      { id: 'slot-2', position: vec(254, 330) },
+      { id: 'slot-3', position: vec(374, 146) },
+      { id: 'slot-4', position: vec(494, 346) },
+      { id: 'slot-5', position: vec(599, 542) },
+      { id: 'slot-6', position: vec(744, 396) },
+    ],
+  },
+  2: {
+    path: [
+      vec(-51, 286),
+      vec(112, 286),
+      vec(220, 418),
+      vec(342, 418),
+      vec(438, 190),
+      vec(596, 190),
+      vec(704, 356),
+      vec(834, 356),
+    ],
+    towerSlots: [
+      { id: 'slot-1', position: vec(96, 386) },
+      { id: 'slot-2', position: vec(256, 256) },
+      { id: 'slot-3', position: vec(350, 522) },
+      { id: 'slot-4', position: vec(484, 292) },
+      { id: 'slot-5', position: vec(618, 112) },
+      { id: 'slot-6', position: vec(710, 468) },
+    ],
+  },
+  3: {
+    path: [
+      vec(-51, 420),
+      vec(96, 420),
+      vec(178, 174),
+      vec(310, 174),
+      vec(398, 504),
+      vec(520, 504),
+      vec(596, 252),
+      vec(720, 252),
+      vec(834, 438),
+    ],
+    towerSlots: [
+      { id: 'slot-1', position: vec(78, 292) },
+      { id: 'slot-2', position: vec(248, 122) },
+      { id: 'slot-3', position: vec(284, 342) },
+      { id: 'slot-4', position: vec(486, 426) },
+      { id: 'slot-5', position: vec(610, 132) },
+      { id: 'slot-6', position: vec(694, 344) },
+    ],
+  },
+  4: {
+    path: [
+      vec(-51, 226),
+      vec(124, 226),
+      vec(194, 544),
+      vec(316, 544),
+      vec(394, 302),
+      vec(506, 302),
+      vec(582, 132),
+      vec(690, 132),
+      vec(756, 504),
+      vec(834, 504),
+    ],
+    towerSlots: [
+      { id: 'slot-1', position: vec(242, 330) },
+      { id: 'slot-2', position: vec(272, 442) },
+      { id: 'slot-3', position: vec(340, 238) },
+      { id: 'slot-4', position: vec(480, 188) },
+      { id: 'slot-5', position: vec(640, 248) },
+      { id: 'slot-6', position: vec(714, 594) },
+    ],
+  },
+  5: {
+    path: [
+      vec(-51, 514),
+      vec(94, 514),
+      vec(144, 146),
+      vec(262, 146),
+      vec(318, 390),
+      vec(430, 390),
+      vec(484, 170),
+      vec(612, 170),
+      vec(662, 536),
+      vec(834, 536),
+    ],
+    towerSlots: [
+      { id: 'slot-1', position: vec(198, 324) },
+      { id: 'slot-2', position: vec(200, 246) },
+      { id: 'slot-3', position: vec(396, 506) },
+      { id: 'slot-4', position: vec(522, 288) },
+      { id: 'slot-5', position: vec(712, 374) },
+    ],
+  },
+  6: {
+    path: [
+      vec(-51, 322),
+      vec(92, 322),
+      vec(158, 572),
+      vec(268, 572),
+      vec(326, 112),
+      vec(438, 112),
+      vec(488, 454),
+      vec(586, 454),
+      vec(636, 224),
+      vec(746, 224),
+      vec(834, 402),
+    ],
+    towerSlots: [
+      { id: 'slot-1', position: vec(200, 452) },
+      { id: 'slot-2', position: vec(224, 378) },
+      { id: 'slot-3', position: vec(396, 228) },
+      { id: 'slot-4', position: vec(536, 552) },
+      { id: 'slot-5', position: vec(698, 318) },
+    ],
+  },
+}
+
+function clonePath(path: readonly Vec2[]): Vec2[] {
+  return path.map((point) => vec(point.x, point.y))
+}
+
+function cloneTowerSlots(slots: LevelLayout['towerSlots']): TowerSlot[] {
+  return slots.map((slot) => ({ id: slot.id, position: vec(slot.position.x, slot.position.y) }))
+}
 
 export class GameWorld {
   private readonly monsters = new Map<string, Monster>()
   private readonly towers = new Map<string, Tower>()
   private readonly projectiles = new Map<string, Projectile>()
   private readonly floatingTexts = new Map<string, FloatingText>()
-  private readonly path = [
-    vec(-51, 348),
-    vec(114, 348),
-    vec(184, 232),
-    vec(344, 232),
-    vec(439, 442),
-    vec(604, 442),
-    vec(704, 302),
-    vec(834, 302),
-  ]
-  private readonly towerSlots: TowerSlot[] = [
-    { id: 'slot-1', position: vec(134, 246) },
-    { id: 'slot-2', position: vec(254, 330) },
-    { id: 'slot-3', position: vec(374, 146) },
-    { id: 'slot-4', position: vec(494, 346) },
-    { id: 'slot-5', position: vec(599, 542) },
-    { id: 'slot-6', position: vec(744, 396) },
-  ]
+  private path = clonePath(levelLayouts[1].path)
+  private towerSlots = cloneTowerSlots(levelLayouts[1].towerSlots)
   private baseHp = 20
   private coins = 90
   private score = 0
@@ -181,10 +307,10 @@ export class GameWorld {
     this.towers.clear()
     this.projectiles.clear()
     this.floatingTexts.clear()
-    this.towerSlots.forEach((slot) => {
-      slot.occupiedBy = undefined
-    })
     this.currentLevel = levels.find((level) => level.id === levelId) ?? levels[0]
+    const layout = levelLayouts[this.currentLevel.id] ?? levelLayouts[1]
+    this.path = clonePath(layout.path)
+    this.towerSlots = cloneTowerSlots(layout.towerSlots)
     this.baseHp = 20
     this.coins = 90
     this.score = 0
