@@ -257,10 +257,15 @@ export class PixiGame {
       this.drawTowers()
       this.drawMonsters()
       this.drawProjectiles()
-      this.drawFloatingTexts()
+      if (this.screen === 'playing') {
+        this.drawFloatingTexts()
+      } else {
+        this.clearFloatingTextNodes()
+      }
       // this.drawRitualField()
       this.drawHud()
     } else {
+      this.clearFloatingTextNodes()
       this.hint.text = ''
     }
   }
@@ -405,9 +410,7 @@ export class PixiGame {
   }
 
   private drawFloatingTexts(): void {
-    this.root.children
-      .filter((child) => child.label === 'floating-text')
-      .forEach((child) => child.destroy())
+    this.clearFloatingTextNodes()
 
     for (const floating of this.world.snapshot().floatingTexts) {
       const text = new Text({ text: floating.text, style: this.smallStyle(floating.color) })
@@ -417,6 +420,12 @@ export class PixiGame {
       text.position.set(floating.position.x, floating.position.y)
       this.root.addChild(text)
     }
+  }
+
+  private clearFloatingTextNodes(): void {
+    this.root.children
+      .filter((child) => child.label === 'floating-text')
+      .forEach((child) => child.destroy())
   }
 
   // private drawRitualField(): void {
@@ -571,6 +580,7 @@ export class PixiGame {
     this.pauseButton.visible = false
     this.closeTowerMenu()
     this.closeTowerActionMenu()
+    this.clearFloatingTextNodes()
     this.clearScreenLayer()
 
     const snapshot = this.world.snapshot()
