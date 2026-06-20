@@ -99,6 +99,12 @@ class AudioMixer {
     })
   }
 
+  stopTheme(): void {
+    this.theme.pause()
+    this.theme.currentTime = 0
+    this.themeStarted = false
+  }
+
   private play(name: SoundName): void {
     const pool = this.pools.get(name)
     const audio = pool?.find((candidate) => candidate.paused || candidate.ended) ?? pool?.[0]
@@ -143,6 +149,7 @@ export class PixiGame {
   private readonly towerMenu = new Container()
   private readonly towerActionMenu = new Container()
   private readonly speedButton = new Container()
+  private readonly pauseButton = new Container()
   private readonly drawing = new Graphics()
   private readonly hud = new Graphics()
   private readonly hudText = new Container()
@@ -153,6 +160,7 @@ export class PixiGame {
   private selectedLevelId = 1
   private unlockedLevelId = 1
   private speedModeIndex = 0
+  private isPaused = false
   private activeTowerMenuSlotId: string | null = null
   private activeTowerActionTowerId: string | null = null
   private towerMenuOptions: TowerMenuOption[] = []
@@ -188,9 +196,11 @@ export class PixiGame {
       this.hud,
       this.hudText,
       this.hint,
+      this.pauseButton,
       this.speedButton,
       this.screenLayer,
     )
+    this.drawPauseButton()
     this.drawSpeedButton()
     this.showMainMenu()
     this.resize()
@@ -209,7 +219,7 @@ export class PixiGame {
   }
 
   private tick(deltaSeconds: number): void {
-    if (this.screen === 'playing') {
+    if (this.screen === 'playing' && !this.isPaused) {
       const speed = this.speedModes[this.speedModeIndex]
       this.world.update(Math.min(deltaSeconds * speed, 0.05 * speed))
       this.playWorldSounds()
@@ -455,11 +465,14 @@ export class PixiGame {
   }
 
   private showMainMenu(): void {
+    this.audio.stopTheme()
     this.screen = 'mainMenu'
     this.clearScreenLayer()
     this.closeTowerMenu()
     this.closeTowerActionMenu()
+    this.isPaused = false
     this.speedButton.visible = false
+    this.pauseButton.visible = false
 
     const overlay = this.screenOverlay()
     const panel = new Container()
@@ -489,9 +502,12 @@ export class PixiGame {
   }
 
   private showLevelSelect(): void {
+    this.audio.stopTheme()
     this.screen = 'levelSelect'
     this.clearScreenLayer()
+    this.isPaused = false
     this.speedButton.visible = false
+    this.pauseButton.visible = false
 
     const overlay = this.screenOverlay()
     const title = new Text({ text: 'SELECT LEVEL', style: this.titleStyle(36, 0xf5f5dc) })
@@ -520,9 +536,12 @@ export class PixiGame {
     this.clearScreenLayer()
     this.closeTowerMenu()
     this.closeTowerActionMenu()
+    this.isPaused = false
     this.speedModeIndex = 0
+    this.drawPauseButton()
     this.drawSpeedButton()
     this.speedButton.visible = true
+    this.pauseButton.visible = true
     this.screen = 'playing'
   }
 
@@ -532,6 +551,9 @@ export class PixiGame {
     }
 
     this.screen = status
+    this.isPaused = false
+    this.speedButton.visible = false
+    this.pauseButton.visible = false
     this.closeTowerMenu()
     this.closeTowerActionMenu()
     this.clearScreenLayer()
@@ -579,6 +601,48 @@ export class PixiGame {
 
     overlay.addChild(panel)
     this.screenLayer.addChild(overlay)
+  }
+
+  private showPauseMenu(): void {
+    if (this.isPaused) {
+      return
+    }
+
+    this.isPaused = true
+    this.isDrawing = false
+    this.activePointerId = null
+    this.drawing.clear()
+    this.closeTowerMenu()
+    this.closeTowerActionMenu()
+    this.clearScreenLayer()
+
+    const overlay = new Container()
+    const shade = new Graphics()
+    shade.rect(0, 0, worldWidth, worldHeight).fill({ color: 0x030607, alpha: 0.56 })
+    overlay.addChild(shade)
+
+    const panel = new Container()
+    panel.position.set(386, 218)
+    const frame = new Graphics()
+    this.drawPanel(frame, 0, 0, 408, 220, 0x0a0f10, 0x81f5e1)
+    panel.addChild(frame)
+
+    const title = new Text({ text: 'PAUSED', style: this.titleStyle(40, 0xf5f5dc) })
+    title.anchor.set(0.5)
+    title.position.set(204, 58)
+    panel.addChild(title)
+
+    panel.addChild(this.createMenuButton(32, 104, 344, 40, 'RESUME', () => this.resumeGame()))
+    panel.addChild(this.createMenuButton(32, 158, 166, 34, 'LEVELS', () => this.showLevelSelect()))
+    panel.addChild(this.createMenuButton(210, 158, 166, 34, 'MENU', () => this.showMainMenu()))
+
+    overlay.addChild(panel)
+    this.screenLayer.addChild(overlay)
+  }
+
+  private resumeGame(): void {
+    this.isPaused = false
+    this.clearScreenLayer()
   }
 
   private startNextLevel(): void {
@@ -726,6 +790,16 @@ export class PixiGame {
 
   private handleInputDown(point: Vec2, pointerId: number): void {
     if (this.screen !== 'playing') {
+      return
+    }
+
+    if (this.isPaused) {
+      return
+    }
+
+    if (this.pauseButtonAt(point)) {
+      this.audio.playUi()
+      this.showPauseMenu()
       return
     }
 
@@ -943,6 +1017,34 @@ export class PixiGame {
       }
     }
     return null
+  }
+
+  private drawPauseButton(): void {
+    for (const child of this.pauseButton.removeChildren()) {
+      child.destroy({ children: true })
+    }
+
+    const x = worldWidth - speedButtonPadding - speedButtonSize * 2 - 10
+    const y = worldHeight - speedButtonPadding - speedButtonSize
+    this.pauseButton.position.set(x, y)
+    this.pauseButton.eventMode = 'static'
+    this.pauseButton.cursor = 'pointer'
+
+    const plate = new Graphics()
+    this.drawPanel(plate, 0, 0, speedButtonSize, speedButtonSize, 0x10181b, 0x81f5e1)
+    const icon = new Graphics()
+    icon
+      .roundRect(14, 12, 5, 18, 2)
+      .fill({ color: 0xf5f5dc, alpha: 0.95 })
+      .roundRect(23, 12, 5, 18, 2)
+      .fill({ color: 0xf5f5dc, alpha: 0.95 })
+    this.pauseButton.addChild(plate, icon)
+  }
+
+  private pauseButtonAt(point: Vec2): boolean {
+    const left = worldWidth - speedButtonPadding - speedButtonSize * 2 - 10
+    const top = worldHeight - speedButtonPadding - speedButtonSize
+    return point.x >= left && point.x <= left + speedButtonSize && point.y >= top && point.y <= top + speedButtonSize
   }
 
   private drawSpeedButton(): void {
