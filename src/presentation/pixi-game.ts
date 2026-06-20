@@ -17,13 +17,14 @@ import victorySoundUrl from '../assets/audio/win.wav'
 import type { GameSoundEvent, GameStatus, LevelConfig, TowerKind, TowerSlot } from '../domain/game'
 import { GameWorld, levels } from '../domain/game'
 import type { Vec2 } from '../domain/geometry'
-import { distance, pointInRect, vec } from '../domain/geometry'
+import { distance, vec } from '../domain/geometry'
 
-const worldWidth = 1180
+const worldWidth = 882
 const worldHeight = 720
 const playRect = { x: 26, y: 76, width: 830, height: 560 }
-const sidebarRect = { x: 884, y: 28, width: 270, height: 596 }
-const ritualRect = { x: 906, y: 86, width: 226, height: 174 }
+const playFramePadding = 10
+// const sidebarRect = { x: 884, y: 28, width: 270, height: 596 }
+// const ritualRect = { x: 906, y: 86, width: 226, height: 174 }
 const towerMenuRadius = 72
 const towerMenuOptionWidth = 58
 const towerMenuOptionHeight = 62
@@ -52,13 +53,13 @@ const soundSources: Record<SoundName, string> = {
 }
 
 const soundVolumes: Record<SoundName, number> = {
-  uiClick: 0.42,
-  enemyDeath: 0.45,
-  defeat: 0.72,
-  victory: 0.72,
-  lanternShoot: 0.18,
-  obeliskShoot: 0.2,
-  idolShoot: 0.2,
+  uiClick: 0.4,
+  enemyDeath: 0.2,
+  defeat: 0.8,
+  victory: 0.8,
+  lanternShoot: 0.05,
+  obeliskShoot: 0.1,
+  idolShoot: 0.1,
 }
 
 class AudioMixer {
@@ -257,7 +258,7 @@ export class PixiGame {
       this.drawMonsters()
       this.drawProjectiles()
       this.drawFloatingTexts()
-      this.drawRitualField()
+      // this.drawRitualField()
       this.drawHud()
     } else {
       this.hint.text = ''
@@ -286,7 +287,15 @@ export class PixiGame {
       this.board.circle(x, y, 80 + (index % 3) * 18).fill({ color: 0x102224, alpha: 0.1 })
     }
 
-    this.drawPanel(this.board, playRect.x - 8, playRect.y - 8, playRect.width + 16, playRect.height + 16, 0x0c1214, 0x394548)
+    this.drawPanel(
+      this.board,
+      playRect.x - playFramePadding,
+      playRect.y - playFramePadding,
+      playRect.width + playFramePadding * 2,
+      playRect.height + playFramePadding * 2,
+      0x0c1214,
+      0x394548,
+    )
     this.board.rect(playRect.x, playRect.y, playRect.width, playRect.height).fill({ color: 0x0b1517, alpha: 0.86 })
 
     for (let x = playRect.x + 20; x < playRect.x + playRect.width; x += 42) {
@@ -296,9 +305,6 @@ export class PixiGame {
     this.board.circle(735, 150, 66).stroke({ color: 0x2dd4bf, width: 2, alpha: 0.12 })
     this.board.circle(740, 150, 22).fill({ color: 0x67e8f9, alpha: 0.08 })
     this.drawTentacles()
-
-    this.drawPanel(this.board, sidebarRect.x, sidebarRect.y, sidebarRect.width, sidebarRect.height, 0x0a0f10, 0x384448)
-    this.board.rect(sidebarRect.x + 10, sidebarRect.y + 10, sidebarRect.width - 20, sidebarRect.height - 20).stroke({ color: 0x142426, width: 1, alpha: 0.9 })
   }
 
   private drawTentacles(): void {
@@ -412,55 +418,59 @@ export class PixiGame {
     }
   }
 
-  private drawRitualField(): void {
-    this.drawPlaque(this.board, sidebarRect.x + 22, sidebarRect.y + 18, sidebarRect.width - 44, 34, 'DRAW MAGIC', 0xa7f3d0)
-    this.drawRuneFrame(this.entities, ritualRect.x, ritualRect.y, ritualRect.width, ritualRect.height)
-    this.entities.circle(ritualRect.x + ritualRect.width / 2, ritualRect.y + ritualRect.height / 2, 58).stroke({ color: 0x6ee7b7, width: 2, alpha: 0.34 })
-    this.entities
-      .moveTo(ritualRect.x + 73, ritualRect.y + 100)
-      .bezierCurveTo(ritualRect.x + 112, ritualRect.y + 40, ritualRect.x + 176, ritualRect.y + 78, ritualRect.x + 137, ritualRect.y + 106)
-      .bezierCurveTo(ritualRect.x + 104, ritualRect.y + 130, ritualRect.x + 106, ritualRect.y + 75, ritualRect.x + 142, ritualRect.y + 83)
-      .stroke({ color: 0x7fffd4, width: 4, alpha: 0.72, cap: 'round' })
-
-    const signs = [
-      { x: 925, label: 'line' },
-      { x: 977, label: 'tri' },
-      { x: 1029, label: 'spiral' },
-      { x: 1081, label: 'ward' },
-    ]
-    for (const sign of signs) {
-      this.drawIconButton(this.entities, sign.x, 284, 38, 34, sign.label === 'spiral')
-    }
-
-    this.drawPanel(this.entities, sidebarRect.x + 22, 352, sidebarRect.width - 44, 116, 0x080d0f, 0x2f3d40)
-    const title = new Text({ text: 'ELDRITCH BLAST', style: this.labelStyle(0xa7f3d0, 16) })
-    title.position.set(sidebarRect.x + 90, 372)
-    this.hudText.addChild(title)
-    const body = new Text({
-      text: 'Draw line, triangle or spiral\nto curse the path.',
-      style: this.smallStyle(0xd6d3c2),
-    })
-    body.position.set(sidebarRect.x + 90, 398)
-    this.hudText.addChild(body)
-    this.entities.circle(sidebarRect.x + 58, 406, 25).stroke({ color: 0x7fffd4, width: 3, alpha: 0.8 })
-
-    this.hint.text = 'Draw: line, triangle, spiral'
-    this.hint.position.set(ritualRect.x + 8, ritualRect.y + ritualRect.height + 52)
-  }
+  // private drawRitualField(): void {
+  //   this.drawPlaque(this.board, sidebarRect.x + 22, sidebarRect.y + 18, sidebarRect.width - 44, 34, 'DRAW MAGIC', 0xa7f3d0)
+  //   this.drawRuneFrame(this.entities, ritualRect.x, ritualRect.y, ritualRect.width, ritualRect.height)
+  //   this.entities.circle(ritualRect.x + ritualRect.width / 2, ritualRect.y + ritualRect.height / 2, 58).stroke({ color: 0x6ee7b7, width: 2, alpha: 0.34 })
+  //   this.entities
+  //     .moveTo(ritualRect.x + 73, ritualRect.y + 100)
+  //     .bezierCurveTo(ritualRect.x + 112, ritualRect.y + 40, ritualRect.x + 176, ritualRect.y + 78, ritualRect.x + 137, ritualRect.y + 106)
+  //     .bezierCurveTo(ritualRect.x + 104, ritualRect.y + 130, ritualRect.x + 106, ritualRect.y + 75, ritualRect.x + 142, ritualRect.y + 83)
+  //     .stroke({ color: 0x7fffd4, width: 4, alpha: 0.72, cap: 'round' })
+  //
+  //   const signs = [
+  //     { x: 925, label: 'line' },
+  //     { x: 977, label: 'tri' },
+  //     { x: 1029, label: 'spiral' },
+  //     { x: 1081, label: 'ward' },
+  //   ]
+  //   for (const sign of signs) {
+  //     this.drawIconButton(this.entities, sign.x, 284, 38, 34, sign.label === 'spiral')
+  //   }
+  //
+  //   this.drawPanel(this.entities, sidebarRect.x + 22, 352, sidebarRect.width - 44, 116, 0x080d0f, 0x2f3d40)
+  //   const title = new Text({ text: 'ELDRITCH BLAST', style: this.labelStyle(0xa7f3d0, 16) })
+  //   title.position.set(sidebarRect.x + 90, 372)
+  //   this.hudText.addChild(title)
+  //   const body = new Text({
+  //     text: 'Draw line, triangle or spiral\nto curse the path.',
+  //     style: this.smallStyle(0xd6d3c2),
+  //   })
+  //   body.position.set(sidebarRect.x + 90, 398)
+  //   this.hudText.addChild(body)
+  //   this.entities.circle(sidebarRect.x + 58, 406, 25).stroke({ color: 0x7fffd4, width: 3, alpha: 0.8 })
+  //
+  //   this.hint.text = 'Draw: line, triangle, spiral'
+  //   this.hint.position.set(ritualRect.x + 8, ritualRect.y + ritualRect.height + 52)
+  // }
 
   private drawHud(): void {
     const snapshot = this.world.snapshot()
+    const frameLeft = playRect.x - playFramePadding
+    const frameRight = playRect.x + playRect.width + playFramePadding
+    const plaqueWidth = 120
+    const plaqueGap = 8
+    const levelWidth = 236
     const items = [
-      { label: 'SANITY', value: String(snapshot.baseHp), x: 34, color: 0x86efac },
-      { label: 'COINS', value: String(snapshot.coins), x: 170, color: 0xfcd34d },
-      { label: 'WAVE', value: `${snapshot.wave}/${snapshot.maxWave}`, x: 306, color: 0xc4b5fd },
-      { label: 'SCORE', value: String(snapshot.score), x: 442, color: 0xf5f5dc },
-      { label: 'LEVEL', value: snapshot.levelName, x: 604, color: 0x81f5e1 },
+      { label: 'SANITY', value: String(snapshot.baseHp), x: frameLeft, width: plaqueWidth, color: 0x86efac },
+      { label: 'COINS', value: String(snapshot.coins), x: frameLeft + (plaqueWidth + plaqueGap), width: plaqueWidth, color: 0xfcd34d },
+      { label: 'WAVE', value: `${snapshot.wave}/${snapshot.maxWave}`, x: frameLeft + (plaqueWidth + plaqueGap) * 2, width: plaqueWidth, color: 0xc4b5fd },
+      { label: 'SCORE', value: String(snapshot.score), x: frameLeft + (plaqueWidth + plaqueGap) * 3, width: plaqueWidth, color: 0xf5f5dc },
+      { label: 'LEVEL', value: snapshot.levelName, x: frameRight - levelWidth, width: levelWidth, color: 0x81f5e1 },
     ]
 
     for (const item of items) {
-      const width = item.label === 'LEVEL' ? 236 : 120
-      this.drawPlaque(this.hud, item.x, 24, width, 36, `${item.label} ${item.value}`, item.color)
+      this.drawPlaque(this.hud, item.x, 24, item.width, 36, `${item.label} ${item.value}`, item.color)
     }
   }
 
@@ -515,12 +525,16 @@ export class PixiGame {
     title.position.set(worldWidth / 2, 82)
     overlay.addChild(title)
 
+    const cardWidth = 232
+    const cardGap = 38
+    const levelGridWidth = cardWidth * 3 + cardGap * 2
+    const levelGridX = (worldWidth - levelGridWidth) / 2
     levels.forEach((level, index) => {
       const column = index % 3
       const row = Math.floor(index / 3)
-      overlay.addChild(this.createLevelCard(level, 190 + column * 270, 148 + row * 172))
+      overlay.addChild(this.createLevelCard(level, levelGridX + column * (cardWidth + cardGap), 148 + row * 172))
     })
-    overlay.addChild(this.createMenuButton(498, 554, 184, 42, 'MAIN MENU', () => this.showMainMenu()))
+    overlay.addChild(this.createMenuButton((worldWidth - 184) / 2, 554, 184, 42, 'MAIN MENU', () => this.showMainMenu()))
     this.screenLayer.addChild(overlay)
   }
 
@@ -788,7 +802,7 @@ export class PixiGame {
     this.handleInputDown(this.toWorldFromEvent(event), -2)
   }
 
-  private handleInputDown(point: Vec2, pointerId: number): void {
+  private handleInputDown(point: Vec2, _pointerId: number): void {
     if (this.screen !== 'playing') {
       return
     }
@@ -845,13 +859,13 @@ export class PixiGame {
     this.closeTowerMenu()
     this.closeTowerActionMenu()
 
-    if (pointInRect(point, ritualRect)) {
-      this.audio.playUi()
-      this.isDrawing = true
-      this.activePointerId = pointerId
-      this.drawingPoints = [point]
-      this.drawing.clear().moveTo(point.x, point.y)
-    }
+    // if (pointInRect(point, ritualRect)) {
+    //   this.audio.playUi()
+    //   this.isDrawing = true
+    //   this.activePointerId = _pointerId
+    //   this.drawingPoints = [point]
+    //   this.drawing.clear().moveTo(point.x, point.y)
+    // }
   }
 
   private handleInputMove(pointerId: number, point: Vec2, event: Event): void {
@@ -1151,14 +1165,14 @@ export class PixiGame {
     this.hudText.addChild(text)
   }
 
-  private drawRuneFrame(graphics: Graphics, x: number, y: number, width: number, height: number): void {
-    graphics.rect(x, y, width, height).fill({ color: 0x050a0b, alpha: 0.92 }).stroke({ color: 0x425254, width: 2, alpha: 0.72 })
-    graphics.rect(x + 8, y + 8, width - 16, height - 16).stroke({ color: 0xa7f3d0, width: 1, alpha: 0.16 })
-  }
-
-  private drawIconButton(graphics: Graphics, x: number, y: number, width: number, height: number, active: boolean): void {
-    graphics.roundRect(x, y, width, height, 4).fill({ color: active ? 0x12352f : 0x11181a, alpha: 0.95 }).stroke({ color: active ? 0x7fffd4 : 0x3f4d50, width: 1, alpha: 0.72 })
-  }
+  // private drawRuneFrame(graphics: Graphics, x: number, y: number, width: number, height: number): void {
+  //   graphics.rect(x, y, width, height).fill({ color: 0x050a0b, alpha: 0.92 }).stroke({ color: 0x425254, width: 2, alpha: 0.72 })
+  //   graphics.rect(x + 8, y + 8, width - 16, height - 16).stroke({ color: 0xa7f3d0, width: 1, alpha: 0.16 })
+  // }
+  //
+  // private drawIconButton(graphics: Graphics, x: number, y: number, width: number, height: number, active: boolean): void {
+  //   graphics.roundRect(x, y, width, height, 4).fill({ color: active ? 0x12352f : 0x11181a, alpha: 0.95 }).stroke({ color: active ? 0x7fffd4 : 0x3f4d50, width: 1, alpha: 0.72 })
+  // }
 
   private titleStyle(fontSize: number, color: number): TextStyle {
     return new TextStyle({
