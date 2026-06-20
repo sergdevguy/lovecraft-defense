@@ -584,7 +584,7 @@ export class PixiGame {
     overlay.addChild(shade)
 
     const panel = new Container()
-    panel.position.set(386, 184)
+    panel.position.set((worldWidth - 408) / 2, 184)
     const accent = status === 'victory' ? 0x86efac : 0xfb7185
     const frame = new Graphics()
     this.drawPanel(frame, 0, 0, 408, 282, 0x0a0f10, accent)
@@ -637,7 +637,7 @@ export class PixiGame {
     overlay.addChild(shade)
 
     const panel = new Container()
-    panel.position.set(386, 218)
+    panel.position.set((worldWidth - 408) / 2, 218)
     const frame = new Graphics()
     this.drawPanel(frame, 0, 0, 408, 220, 0x0a0f10, 0x81f5e1)
     panel.addChild(frame)
