@@ -41,8 +41,9 @@ canvas {
 }
 
 .game-frame {
-  width: min(calc(100vw - 32px), calc((100svh - 32px) * 850 / 720), 1180px);
-  aspect-ratio: 850 / 720;
+  width: min(calc(100vw - 32px), calc((100svh - 32px) * 890 / 760), 1180px);
+  aspect-ratio: 890 / 760;
+  padding: 20px;
   border: 1px solid rgba(128, 245, 224, 0.26);
   border-radius: 8px;
   overflow: hidden;
@@ -53,6 +54,7 @@ canvas {
 #game {
   width: 100%;
   height: 100%;
+  aspect-ratio: 850 / 720;
 }
 
 #game canvas {

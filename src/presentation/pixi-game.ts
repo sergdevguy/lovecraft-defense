@@ -706,8 +706,19 @@ export class PixiGame {
     number.position.set(18, 16)
     const name = new Text({ text: level.name, style: this.labelStyle(locked ? 0x8c948d : 0xf5f5dc, 17) })
     name.position.set(72, 24)
-    const subtitle = new Text({ text: level.subtitle, style: this.smallStyle(locked ? 0x6b7280 : 0xb7bcae) })
-    subtitle.position.set(20, 70)
+    const subtitle = new Text({
+      text: level.subtitle,
+      style: new TextStyle({
+        fontFamily: 'Inter, system-ui, sans-serif',
+        fontSize: 12,
+        fill: locked ? 0x6b7280 : 0xb7bcae,
+        letterSpacing: 0,
+        wordWrap: true,
+        wordWrapWidth: 184,
+        breakWords: true,
+      }),
+    })
+    subtitle.position.set(20, 66)
     const waves = new Text({ text: `${level.maxWave} WAVES`, style: this.labelStyle(locked ? 0x6b7280 : level.accentColor, 13) })
     waves.position.set(20, 104)
     card.addChild(number, name, subtitle, waves)
