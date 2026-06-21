@@ -501,7 +501,7 @@ export class PixiGame {
     this.drawPanel(frame, 0, 0, 360, 430, 0x0b1113, 0x344247)
     panel.addChild(frame)
 
-    const title = new Text({ text: 'LAVCRAFT', style: this.titleStyle(48, 0xf5f5dc) })
+    const title = new Text({ text: 'LOVECRAFT', style: this.titleStyle(48, 0xf5f5dc) })
     title.anchor.set(0.5)
     title.position.set(180, 92)
     const subtitle = new Text({ text: 'DEFENSE', style: this.labelStyle(0x81f5e1, 20) })
