@@ -28,6 +28,8 @@ const en: Dict = {
 
   'ready.level': 'LEVEL {n}',
   'ready.prompt': 'Press ENTER to begin',
+  'ready.hint': 'Place your towers, then press ENTER to send the wave',
+  'btn.startWave': 'START WAVE',
 
   'end.victory': 'VICTORY',
   'end.defeat': 'DEFEAT',
@@ -93,6 +95,8 @@ const ru: Dict = {
 
   'ready.level': 'УРОВЕНЬ {n}',
   'ready.prompt': 'Нажмите ENTER, чтобы начать',
+  'ready.hint': 'Расставьте башни, затем нажмите ENTER для запуска волны',
+  'btn.startWave': 'НАЧАТЬ ВОЛНУ',
 
   'end.victory': 'ПОБЕДА',
   'end.defeat': 'ПОРАЖЕНИЕ',

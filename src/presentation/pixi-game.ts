@@ -1,7 +1,10 @@
 import {
   Application,
+  BlurFilter,
+  ColorMatrixFilter,
   Container,
   Graphics,
+  NoiseFilter,
   Text,
   TextStyle,
 } from 'pixi.js'
@@ -14,7 +17,7 @@ import towerLanternShootUrl from '../assets/audio/tower_lantern_shoot.wav'
 import towerObeliskShootUrl from '../assets/audio/tower_obelisc_shoot.wav'
 import uiClickSoundUrl from '../assets/audio/ui-clicks.wav'
 import victorySoundUrl from '../assets/audio/win.wav'
-import type { GameSoundEvent, GameStatus, LevelConfig, TowerKind, TowerSlot } from '../domain/game'
+import type { GameFxEvent, GameSnapshot, GameSoundEvent, GameStatus, LevelConfig, TowerKind, TowerSlot } from '../domain/game'
 import { GameWorld, levels } from '../domain/game'
 import type { Vec2 } from '../domain/geometry'
 import { distance, vec } from '../domain/geometry'
@@ -141,6 +144,28 @@ type TowerActionOption = {
   height: number
 }
 
+type Particle = {
+  x: number
+  y: number
+  vx: number
+  vy: number
+  life: number
+  maxLife: number
+  size: number
+  color: number
+  gravity: number
+  drag: number
+  glow: boolean
+}
+
+const maxParticles = 420
+
+const signFxColor: Record<'banish' | 'elder' | 'spiral', number> = {
+  banish: 0x9dfcf4,
+  elder: 0xffd783,
+  spiral: 0xd3b8ff,
+}
+
 export class PixiGame {
   private readonly app = new Application()
   private readonly world = new GameWorld()
@@ -149,6 +174,15 @@ export class PixiGame {
   private readonly root = new Container()
   private readonly board = new Graphics()
   private readonly entities = new Graphics()
+  private readonly glow = new Graphics()
+  private readonly vignette = new Graphics()
+  private readonly grain = new Graphics()
+  private readonly flash = new Graphics()
+  private readonly grainFilter = new NoiseFilter({ noise: 0.55 })
+  private particles: Particle[] = []
+  private shakeMag = 0
+  private signFlashTime = 0
+  private signFlashColor = 0xffffff
   private readonly towerMenu = new Container()
   private readonly towerActionMenu = new Container()
   private readonly speedButton = new Container()
@@ -161,6 +195,7 @@ export class PixiGame {
   private readonly settingsButton = new Container()
   private readonly settingsLayer = new Container()
   private isSettingsOpen = false
+  private animTime = 0
   private readonly speedModes = [1, 2, 4] as const
   private screen: ScreenState = 'mainMenu'
   private selectedLevelId = 1
@@ -196,6 +231,10 @@ export class PixiGame {
     this.root.addChild(
       this.board,
       this.entities,
+      this.glow,
+      this.vignette,
+      this.grain,
+      this.flash,
       this.towerMenu,
       this.towerActionMenu,
       this.drawing,
@@ -208,6 +247,7 @@ export class PixiGame {
       this.settingsButton,
       this.settingsLayer,
     )
+    this.setupFilters()
     this.drawPauseButton()
     this.drawSpeedButton()
     this.drawSettingsButton()
@@ -230,16 +270,23 @@ export class PixiGame {
   }
 
   private tick(deltaSeconds: number): void {
+    const dt = Math.min(deltaSeconds, 0.05)
+    this.animTime += dt
     if (this.screen === 'playing' && !this.isPaused) {
       const speed = this.speedModes[this.speedModeIndex]
       this.world.update(Math.min(deltaSeconds * speed, 0.05 * speed))
       this.playWorldSounds()
+      this.consumeFxEvents()
       const status = this.world.snapshot().status
       if (status === 'victory' || status === 'defeat') {
         this.showEndScreen(status)
       }
     }
+    this.updateParticles(dt)
+    this.shakeMag = Math.max(0, this.shakeMag - dt * 42)
+    this.signFlashTime = Math.max(0, this.signFlashTime - dt)
     this.render()
+    this.applyShake()
   }
 
   private playWorldSounds(): void {
@@ -252,6 +299,10 @@ export class PixiGame {
     const snapshot = this.world.snapshot()
     this.board.clear()
     this.entities.clear()
+    this.glow.clear()
+    this.vignette.clear()
+    this.grain.clear()
+    this.flash.clear()
     this.hud.clear()
     this.hudText.removeChildren().forEach((child) => child.destroy())
 
@@ -278,29 +329,310 @@ export class PixiGame {
       this.clearFloatingTextNodes()
       this.hint.text = ''
     }
+
+    this.drawParticles()
+    this.drawGlow(snapshot)
+    this.drawVignette(snapshot.baseHp)
+    this.drawGrain()
+    this.drawFlash()
+  }
+
+  private setupFilters(): void {
+    this.glow.filters = [new BlurFilter({ strength: 12, quality: 3 })]
+    this.glow.blendMode = 'add'
+    this.grain.filters = [this.grainFilter]
+    this.grain.blendMode = 'add'
+    this.grain.alpha = 0.05
+
+    // Лёгкий цветокор всей сцены: чуть насыщеннее и контрастнее — "плёночная" глубина.
+    const cm = new ColorMatrixFilter()
+    cm.saturate(0.16, true)
+    cm.contrast(0.08, true)
+    cm.brightness(1.02, true)
+    this.root.filters = [cm]
+  }
+
+  // === Частицы =============================================================
+
+  private spawnBurst(
+    x: number,
+    y: number,
+    count: number,
+    options: { speed: number, life: number, size: number, color: number, gravity?: number, drag?: number, glow?: boolean },
+  ): void {
+    for (let index = 0; index < count; index += 1) {
+      if (this.particles.length >= maxParticles) {
+        this.particles.shift()
+      }
+      const angle = Math.random() * Math.PI * 2
+      const velocity = options.speed * (0.35 + Math.random() * 0.65)
+      const life = options.life * (0.6 + Math.random() * 0.5)
+      this.particles.push({
+        x,
+        y,
+        vx: Math.cos(angle) * velocity,
+        vy: Math.sin(angle) * velocity,
+        life,
+        maxLife: life,
+        size: options.size * (0.7 + Math.random() * 0.6),
+        color: options.color,
+        gravity: options.gravity ?? 0,
+        drag: options.drag ?? 2.2,
+        glow: options.glow ?? true,
+      })
+    }
+  }
+
+  private updateParticles(dt: number): void {
+    const survivors: Particle[] = []
+    for (const particle of this.particles) {
+      particle.life -= dt
+      if (particle.life <= 0) {
+        continue
+      }
+      const damp = Math.max(0, 1 - particle.drag * dt)
+      particle.vx *= damp
+      particle.vy = particle.vy * damp + particle.gravity * dt
+      particle.x += particle.vx * dt
+      particle.y += particle.vy * dt
+      survivors.push(particle)
+    }
+    this.particles = survivors
+  }
+
+  private drawParticles(): void {
+    for (const particle of this.particles) {
+      const fade = Math.max(0, particle.life / particle.maxLife)
+      const radius = Math.max(0.5, particle.size * fade)
+      this.entities.circle(particle.x, particle.y, radius).fill({ color: particle.color, alpha: 0.35 + fade * 0.6 })
+    }
+  }
+
+  // Bloom: мягкие размытые круги под яркими объектами + светящимися частицами.
+  private drawGlow(snapshot: GameSnapshot): void {
+    for (const particle of this.particles) {
+      if (!particle.glow) {
+        continue
+      }
+      const fade = Math.max(0, particle.life / particle.maxLife)
+      this.glow.circle(particle.x, particle.y, particle.size * (1.6 + fade * 2)).fill({ color: particle.color, alpha: 0.12 * fade })
+    }
+
+    for (const projectile of snapshot.projectiles) {
+      const color = projectile.splashRadius > 0 ? 0xfca5a5 : 0x9dfcf4
+      this.glow.circle(projectile.position.x, projectile.position.y, 14).fill({ color, alpha: 0.22 })
+    }
+
+    for (const tower of snapshot.towers) {
+      this.glow.circle(tower.position.x, tower.position.y, 18 + tower.level * 3).fill({ color: this.towerColor(tower.kind), alpha: 0.1 })
+    }
+
+    if (snapshot.path.length > 0) {
+      const base = snapshot.path[snapshot.path.length - 1]
+      const pulse = 0.5 + 0.5 * Math.sin(this.animTime * 2.2)
+      this.glow.circle(base.x, base.y, 40 + pulse * 10).fill({ color: 0x7f1d1d, alpha: 0.16 + pulse * 0.08 })
+    }
+  }
+
+  // === Тряска экрана =======================================================
+
+  private addShake(magnitude: number): void {
+    this.shakeMag = Math.min(16, this.shakeMag + magnitude)
+  }
+
+  private applyShake(): void {
+    if (this.shakeMag <= 0.05) {
+      this.root.position.set(this.offset.x, this.offset.y)
+      return
+    }
+    const dx = (Math.random() * 2 - 1) * this.shakeMag
+    const dy = (Math.random() * 2 - 1) * this.shakeMag
+    this.root.position.set(this.offset.x + dx, this.offset.y + dy)
+  }
+
+  // === Виньетка / зерно / вспышка ==========================================
+
+  // Виньетка темнит края и краснеет по мере падения рассудка — "безумие наступает".
+  private drawVignette(baseHp: number): void {
+    const sanity = Math.max(0, Math.min(1, baseHp / 20))
+    const dread = 1 - sanity
+    const edgeAlpha = 0.5 + dread * 0.32
+    const color = this.mixColor(0x000000, 0x3a0608, dread)
+    const steps = 9
+    const maxInset = 110
+    const stepWidth = maxInset / steps + 2
+    for (let index = 0; index < steps; index += 1) {
+      const t = index / (steps - 1)
+      const inset = t * maxInset
+      const alpha = (1 - t) * (1 - t) * edgeAlpha
+      this.vignette
+        .rect(inset, inset, worldWidth - inset * 2, worldHeight - inset * 2)
+        .stroke({ color, width: stepWidth, alpha })
+    }
+  }
+
+  private drawGrain(): void {
+    this.grainFilter.seed = Math.random()
+    this.grain.rect(0, 0, worldWidth, worldHeight).fill({ color: 0x8a8f8c, alpha: 0.5 })
+  }
+
+  private drawFlash(): void {
+    if (this.signFlashTime <= 0) {
+      return
+    }
+    const intensity = this.signFlashTime / 0.45
+    this.flash.rect(0, 0, worldWidth, worldHeight).fill({ color: this.signFlashColor, alpha: 0.28 * intensity })
+  }
+
+  private consumeFxEvents(): void {
+    for (const event of this.world.consumeFxEvents()) {
+      this.applyFxEvent(event)
+    }
+  }
+
+  private applyFxEvent(event: GameFxEvent): void {
+    const { x, y } = event.position
+    switch (event.kind) {
+      case 'muzzle':
+        this.spawnBurst(x, y, 5, { speed: 90, life: 0.22, size: 2.4, color: this.towerColor(event.towerKind), drag: 4 })
+        break
+      case 'hit':
+        this.spawnBurst(x, y, 7, { speed: 130, life: 0.3, size: 2.2, color: 0xfde68a, drag: 3 })
+        break
+      case 'death': {
+        const color = event.monsterKind === 'shoggoth' ? 0xf0abfc : event.monsterKind === 'deepOne' ? 0x67e8f9 : 0x86efac
+        const count = event.monsterKind === 'shoggoth' ? 28 : 16
+        this.spawnBurst(x, y, count, { speed: 150, life: 0.55, size: 3, color, drag: 2.4 })
+        // чернильное пятно — тёмные тяжёлые брызги
+        this.spawnBurst(x, y, Math.round(count / 2), { speed: 70, life: 0.8, size: 4.5, color: 0x0a0510, gravity: 60, drag: 1.4, glow: false })
+        if (event.monsterKind === 'shoggoth') {
+          this.addShake(5)
+        }
+        break
+      }
+      case 'explosion':
+        this.spawnBurst(x, y, 24, { speed: event.radius * 3, life: 0.5, size: 3.4, color: 0xfca5a5, drag: 2.6 })
+        this.spawnBurst(x, y, 10, { speed: event.radius * 1.6, life: 0.7, size: 2.2, color: 0xfff1f2, drag: 2 })
+        this.addShake(Math.min(11, event.radius / 7))
+        break
+      case 'sanityLost':
+        this.spawnBurst(x, y, 14, { speed: 120, life: 0.5, size: 3, color: 0xff8e8e, drag: 2.4 })
+        this.signFlashTime = 0.45
+        this.signFlashColor = 0x7f1d1d
+        this.addShake(7)
+        break
+      case 'sign':
+        this.signFlashColor = signFxColor[event.signKind]
+        this.signFlashTime = 0.45
+        this.spawnBurst(x, y, 18, { speed: 170, life: 0.5, size: 3, color: signFxColor[event.signKind], drag: 2.2 })
+        this.addShake(4)
+        break
+    }
+  }
+
+  // Deep-water vertical gradient approximated with stacked translucent bands.
+  private drawDeepGradient(top: number, bottom: number): void {
+    const bands = 14
+    const height = worldHeight / bands
+    for (let index = 0; index < bands; index += 1) {
+      const tBand = index / (bands - 1)
+      const color = this.mixColor(top, bottom, tBand)
+      this.board.rect(0, index * height, worldWidth, height + 1).fill(color)
+    }
+  }
+
+  private mixColor(a: number, b: number, t: number): number {
+    const ar = (a >> 16) & 0xff
+    const ag = (a >> 8) & 0xff
+    const ab = a & 0xff
+    const br = (b >> 16) & 0xff
+    const bg = (b >> 8) & 0xff
+    const bb = b & 0xff
+    const r = Math.round(ar + (br - ar) * t)
+    const g = Math.round(ag + (bg - ag) * t)
+    const bl = Math.round(ab + (bb - ab) * t)
+    return (r << 16) | (g << 8) | bl
+  }
+
+  // Pseudo-random but stable star field (no Math.random — deterministic per index).
+  private drawStarfield(maxY: number, count: number): void {
+    for (let index = 0; index < count; index += 1) {
+      const x = ((index * 197) % worldWidth)
+      const y = ((index * 89) % Math.round(maxY))
+      const twinkle = 0.18 + 0.16 * (0.5 + 0.5 * Math.sin(this.animTime * 1.4 + index))
+      const radius = index % 7 === 0 ? 1.8 : 1
+      this.board.circle(x, y, radius).fill({ color: 0xcfe9e4, alpha: twinkle })
+    }
+  }
+
+  private drawFog(): void {
+    for (let index = 0; index < 7; index += 1) {
+      const drift = Math.sin(this.animTime * 0.18 + index) * 26
+      const x = 70 + index * 120 + drift
+      const y = 120 + (index % 3) * 190
+      this.board.ellipse(x, y, 150, 64).fill({ color: 0x16303a, alpha: 0.07 })
+    }
+  }
+
+  // Eldritch summoning circle: nested rings + ticks + rotating triangle.
+  private drawSigil(x: number, y: number, radius: number, color: number, alpha: number): void {
+    this.board.circle(x, y, radius).stroke({ color, width: 2, alpha })
+    this.board.circle(x, y, radius * 0.7).stroke({ color, width: 1, alpha: alpha * 0.8 })
+    this.board.circle(x, y, radius * 0.34).stroke({ color: 0xf5f5dc, width: 1, alpha: alpha * 0.6 })
+    const rot = this.animTime * 0.25
+    for (let tri = 0; tri < 2; tri += 1) {
+      const phase = rot + (tri * Math.PI) / 3
+      const points: number[] = []
+      for (let corner = 0; corner < 3; corner += 1) {
+        const angle = phase + (corner * Math.PI * 2) / 3
+        points.push(x + Math.cos(angle) * radius * 0.7, y + Math.sin(angle) * radius * 0.7)
+      }
+      this.board.poly(points, true).stroke({ color, width: 1, alpha: alpha * 0.5 })
+    }
+    for (let tick = 0; tick < 24; tick += 1) {
+      const angle = (tick / 24) * Math.PI * 2
+      const inner = radius * 0.86
+      this.board
+        .moveTo(x + Math.cos(angle) * inner, y + Math.sin(angle) * inner)
+        .lineTo(x + Math.cos(angle) * radius, y + Math.sin(angle) * radius)
+        .stroke({ color, width: 1, alpha: alpha * 0.55 })
+    }
   }
 
   private drawMenuBackground(): void {
-    this.board.rect(0, 0, worldWidth, worldHeight).fill(0x060a0c)
+    this.drawDeepGradient(0x05161c, 0x010608)
+    this.drawStarfield(worldHeight, 90)
+    this.drawFog()
 
-    for (let index = 0; index < 16; index += 1) {
-      const x = 94 + index * 72
-      const y = 86 + (index % 4) * 118
-      this.board.circle(x, y, 74 + (index % 3) * 20).fill({ color: 0x0f2426, alpha: 0.14 })
+    // Looming Cthulhu silhouette behind the menu — head + wing arcs + many eyes.
+    const cx = worldWidth / 2
+    const cy = worldHeight / 2 + 30
+    this.drawSigil(cx, cy, 250, 0x1f6f63, 0.12)
+    this.board.ellipse(cx, cy - 40, 150, 180).fill({ color: 0x07181b, alpha: 0.55 })
+    for (let side = -1; side <= 1; side += 2) {
+      this.board
+        .moveTo(cx, cy - 150)
+        .bezierCurveTo(cx + side * 200, cy - 250, cx + side * 320, cy - 60, cx + side * 150, cy + 120)
+        .stroke({ color: 0x123036, width: 3, alpha: 0.35 })
     }
-
-    this.board.circle(worldWidth / 2, worldHeight / 2, 240).stroke({ color: 0x2dd4bf, width: 2, alpha: 0.08 })
-    this.board.circle(worldWidth / 2, worldHeight / 2, 128).stroke({ color: 0xf5f5dc, width: 1, alpha: 0.06 })
+    // dangling face tentacles
+    for (let index = 0; index < 6; index += 1) {
+      const sx = cx - 60 + index * 24
+      const sway = Math.sin(this.animTime * 0.9 + index) * 18
+      this.board
+        .moveTo(sx, cy + 30)
+        .bezierCurveTo(sx + sway, cy + 90, sx - sway, cy + 150, sx + sway * 0.5, cy + 210)
+        .stroke({ color: 0x0d262a, width: 6 - (index % 3), alpha: 0.4 })
+    }
+    const eyeGlow = 0.4 + 0.25 * Math.sin(this.animTime * 2)
+    this.board.circle(cx - 42, cy - 70, 9).fill({ color: 0x9d2d36, alpha: eyeGlow })
+    this.board.circle(cx + 42, cy - 70, 9).fill({ color: 0x9d2d36, alpha: eyeGlow })
   }
 
   private drawBackground(): void {
-    this.board.rect(0, 0, worldWidth, worldHeight).fill(0x101517)
-
-    for (let index = 0; index < 18; index += 1) {
-      const x = 40 + index * 67
-      const y = 84 + (index % 5) * 86
-      this.board.circle(x, y, 80 + (index % 3) * 18).fill({ color: 0x102224, alpha: 0.1 })
-    }
+    this.drawDeepGradient(0x0a1c22, 0x040b0e)
+    this.drawStarfield(playRect.y, 46)
+    this.drawFog()
 
     this.drawPanel(
       this.board,
@@ -311,26 +643,29 @@ export class PixiGame {
       0x0c1214,
       0x394548,
     )
-    this.board.rect(playRect.x, playRect.y, playRect.width, playRect.height).fill({ color: 0x0b1517, alpha: 0.86 })
+    this.board.rect(playRect.x, playRect.y, playRect.width, playRect.height).fill({ color: 0x07171a, alpha: 0.9 })
 
-    for (let x = playRect.x + 20; x < playRect.x + playRect.width; x += 42) {
-      this.board.moveTo(x, playRect.y + 8).lineTo(x + 16, playRect.y + playRect.height - 12).stroke({ color: 0x20393a, width: 1, alpha: 0.22 })
+    // submerged seabed texture: faint runic glyph rows
+    for (let gy = playRect.y + 40; gy < playRect.y + playRect.height; gy += 86) {
+      for (let gx = playRect.x + 40; gx < playRect.x + playRect.width; gx += 96) {
+        this.board.circle(gx, gy, 2).fill({ color: 0x1c3b3d, alpha: 0.3 })
+        this.board.moveTo(gx - 6, gy + 8).lineTo(gx + 6, gy + 8).stroke({ color: 0x1c3b3d, width: 1, alpha: 0.18 })
+      }
     }
 
-    this.board.circle(735, 150, 66).stroke({ color: 0x2dd4bf, width: 2, alpha: 0.12 })
-    this.board.circle(740, 150, 22).fill({ color: 0x67e8f9, alpha: 0.08 })
-    this.drawTentacles()
-  }
+    // ambient eldritch glow top-right
+    this.drawSigil(735, 150, 70, 0x2dd4bf, 0.12)
+    this.board.circle(735, 150, 22).fill({ color: 0x67e8f9, alpha: 0.07 })
 
-  private drawTentacles(): void {
-    const color = 0x1f3b3f
-    for (let index = 0; index < 5; index += 1) {
-      const startX = 710 + index * 28
-      const startY = 500 - index * 38
+    // tentacles creeping from the deep along the bottom
+    for (let index = 0; index < 6; index += 1) {
+      const startX = 120 + index * 130
+      const startY = playRect.y + playRect.height
+      const sway = Math.sin(this.animTime * 0.7 + index * 1.3) * 26
       this.board
         .moveTo(startX, startY)
-        .bezierCurveTo(startX + 80, startY - 55, startX - 20, startY - 132, startX + 64, startY - 184)
-        .stroke({ color, width: 8 - index, alpha: 0.18 })
+        .bezierCurveTo(startX + 60 + sway, startY - 80, startX - 40 + sway, startY - 170, startX + 30 + sway, startY - 240)
+        .stroke({ color: 0x12343a, width: 9 - (index % 4), alpha: 0.22 })
     }
   }
 
@@ -365,9 +700,50 @@ export class PixiGame {
       }
     }
 
-    const portal = path[path.length - 1]
-    this.board.circle(portal.x, portal.y, 42).fill({ color: 0x180f12, alpha: 0.95 }).stroke({ color: 0x9d2d36, width: 3 })
-    this.board.circle(portal.x, portal.y, 18).fill({ color: 0x7f1d1d, alpha: 0.8 })
+    this.drawBase(path[path.length - 1])
+  }
+
+  // The base under siege: an eldritch idol-gate where the deep ones break through.
+  private drawBase(center: Vec2): void {
+    const { x, y } = center
+    const pulse = 0.5 + 0.5 * Math.sin(this.animTime * 2.2)
+
+    // outer summoning ground
+    this.drawSigil(x, y, 52, 0x9d2d36, 0.32)
+
+    // writhing tentacles bursting around the gate
+    for (let index = 0; index < 7; index += 1) {
+      const base = (index / 7) * Math.PI * 2
+      const reach = 46 + Math.sin(this.animTime * 1.6 + index) * 12
+      const sway = Math.sin(this.animTime * 2 + index * 1.7) * 18
+      const tipX = x + Math.cos(base) * reach
+      const tipY = y + Math.sin(base) * reach
+      const midX = x + Math.cos(base) * reach * 0.55 + sway
+      const midY = y + Math.sin(base) * reach * 0.55 - 10
+      this.board
+        .moveTo(x, y)
+        .quadraticCurveTo(midX, midY, tipX, tipY)
+        .stroke({ color: 0x1c4a44, width: 7 - (index % 3), alpha: 0.8 })
+      this.board.circle(tipX, tipY, 3).fill({ color: 0x2dd4bf, alpha: 0.6 })
+    }
+
+    // stone arch ring
+    this.board.circle(x, y, 38).fill({ color: 0x0a0608, alpha: 0.96 }).stroke({ color: 0x6b2f37, width: 4, alpha: 0.95 })
+    this.board.circle(x, y, 38).stroke({ color: 0x9d2d36, width: 2, alpha: 0.5 })
+
+    // void maw with inner glow
+    this.board.circle(x, y, 24).fill({ color: 0x1a0a0d, alpha: 1 })
+    this.board.circle(x, y, 16 + pulse * 5).fill({ color: 0x7f1d1d, alpha: 0.55 + pulse * 0.3 })
+    this.board.circle(x, y, 7).fill({ color: 0xfca5a5, alpha: 0.5 + pulse * 0.4 })
+
+    // watching eyes set into the arch
+    for (let index = 0; index < 6; index += 1) {
+      const angle = (index / 6) * Math.PI * 2 + Math.PI / 6
+      const ex = x + Math.cos(angle) * 33
+      const ey = y + Math.sin(angle) * 33
+      this.board.circle(ex, ey, 3.4).fill({ color: 0x040707, alpha: 1 })
+      this.board.circle(ex, ey, 1.7).fill({ color: 0xfcd34d, alpha: 0.5 + pulse * 0.4 })
+    }
   }
 
   private drawTowerSlots(): void {
@@ -392,24 +768,126 @@ export class PixiGame {
     }
   }
 
+  private drawEye(x: number, y: number, radius: number, color: number): void {
+    this.entities.circle(x, y, radius).fill({ color: 0xf5f5dc, alpha: 0.95 })
+    this.entities.circle(x, y, radius * 0.62).fill(color)
+    this.entities.circle(x, y, radius * 0.28).fill(0x040707)
+  }
+
   private drawMonsters(): void {
     for (const monster of this.world.snapshot().monsters) {
-      const color = monster.kind === 'cultist' ? 0x86efac : monster.kind === 'deepOne' ? 0x67e8f9 : 0xf0abfc
-      const radius = monster.kind === 'shoggoth' ? 20 : 14
-      this.entities.circle(monster.position.x, monster.position.y + 4, radius + 4).fill({ color: 0x020708, alpha: 0.75 })
-      this.entities
-        .circle(monster.position.x, monster.position.y, radius)
-        .fill({ color: 0x0a1112, alpha: 0.98 })
-        .stroke({ color, width: 2, alpha: 0.88 })
-      this.entities.circle(monster.position.x - 4, monster.position.y - 5, 2.4).fill(color)
-      this.entities.circle(monster.position.x + 4, monster.position.y - 5, 2.4).fill(color)
+      const x = monster.position.x
+      const y = monster.position.y
+      const phase = x * 0.05 + y * 0.05
+      const bob = Math.sin(this.animTime * 3 + phase) * 1.5
+      const radius = monster.kind === 'shoggoth' ? 22 : monster.kind === 'deepOne' ? 16 : 13
 
-      const hpWidth = 36
-      this.entities.rect(monster.position.x - hpWidth / 2, monster.position.y - radius - 13, hpWidth, 4).fill(0x301b1b)
+      // contact shadow
+      this.entities.ellipse(x, y + radius * 0.7, radius * 1.1, radius * 0.45).fill({ color: 0x020708, alpha: 0.55 })
+
+      if (monster.kind === 'cultist') {
+        this.drawCultist(x, y + bob, radius, phase)
+      } else if (monster.kind === 'deepOne') {
+        this.drawDeepOne(x, y + bob, radius, phase)
+      } else {
+        this.drawShoggoth(x, y + bob, radius, phase)
+      }
+
+      const hpWidth = monster.kind === 'shoggoth' ? 46 : 36
+      const hpY = y - radius - 15
+      this.entities.rect(x - hpWidth / 2, hpY, hpWidth, 4).fill(0x301b1b)
       this.entities
-        .rect(monster.position.x - hpWidth / 2, monster.position.y - radius - 13, hpWidth * (monster.hp / monster.maxHp), 4)
+        .rect(x - hpWidth / 2, hpY, hpWidth * Math.max(0, monster.hp / monster.maxHp), 4)
         .fill(0xef4444)
     }
+  }
+
+  // Robed cultist — hooded figure with a faint candle and glowing eyes.
+  private drawCultist(x: number, y: number, radius: number, _phase: number): void {
+    const accent = 0x86efac
+    // robe
+    this.entities
+      .poly([x, y - radius * 0.2, x + radius * 0.9, y + radius * 1.1, x - radius * 0.9, y + radius * 1.1], true)
+      .fill({ color: 0x0b1a16, alpha: 0.98 })
+      .stroke({ color: accent, width: 1.5, alpha: 0.6 })
+    // hood
+    this.entities
+      .moveTo(x - radius * 0.7, y)
+      .quadraticCurveTo(x, y - radius * 1.5, x + radius * 0.7, y)
+      .quadraticCurveTo(x, y - radius * 0.5, x - radius * 0.7, y)
+      .fill({ color: 0x08120f, alpha: 1 })
+      .stroke({ color: accent, width: 1.5, alpha: 0.7 })
+    // shadowed face void
+    this.entities.ellipse(x, y - radius * 0.45, radius * 0.42, radius * 0.5).fill(0x020605)
+    // glowing eyes
+    this.entities.circle(x - radius * 0.18, y - radius * 0.5, 1.8).fill(accent)
+    this.entities.circle(x + radius * 0.18, y - radius * 0.5, 1.8).fill(accent)
+  }
+
+  // Deep One — fish-humanoid: finned body, gaping eye, waving feeler tentacles.
+  private drawDeepOne(x: number, y: number, radius: number, phase: number): void {
+    const accent = 0x67e8f9
+    // dorsal fin
+    this.entities
+      .poly([x, y - radius * 1.5, x + radius * 0.5, y - radius * 0.3, x - radius * 0.5, y - radius * 0.3], true)
+      .fill({ color: 0x103a44, alpha: 0.95 })
+      .stroke({ color: accent, width: 1, alpha: 0.6 })
+    // side fins
+    for (const side of [-1, 1]) {
+      this.entities
+        .poly([x + side * radius * 0.6, y, x + side * radius * 1.4, y - radius * 0.4, x + side * radius * 1.3, y + radius * 0.5], true)
+        .fill({ color: 0x0c2e36, alpha: 0.9 })
+        .stroke({ color: accent, width: 1, alpha: 0.45 })
+    }
+    // waving feelers under the maw
+    for (let index = 0; index < 4; index += 1) {
+      const fx = x - radius * 0.5 + index * (radius / 3)
+      const sway = Math.sin(this.animTime * 4 + phase + index) * 4
+      this.entities
+        .moveTo(fx, y + radius * 0.7)
+        .quadraticCurveTo(fx + sway, y + radius * 1.2, fx + sway, y + radius * 1.7)
+        .stroke({ color: accent, width: 2, alpha: 0.6 })
+    }
+    // scaled body
+    this.entities
+      .ellipse(x, y, radius * 0.85, radius)
+      .fill({ color: 0x0a2228, alpha: 0.98 })
+      .stroke({ color: accent, width: 2, alpha: 0.85 })
+    // scales
+    for (let row = 0; row < 2; row += 1) {
+      this.entities.arc(x, y + row * 6 - 2, radius * 0.5, 0.2, Math.PI - 0.2).stroke({ color: accent, width: 1, alpha: 0.3 })
+    }
+    this.drawEye(x, y - radius * 0.15, radius * 0.42, accent)
+  }
+
+  // Shoggoth — amorphous bubbling mass studded with eyes.
+  private drawShoggoth(x: number, y: number, radius: number, phase: number): void {
+    const accent = 0xf0abfc
+    // wobbling protoplasmic lobes
+    for (let index = 0; index < 6; index += 1) {
+      const angle = (index / 6) * Math.PI * 2
+      const wobble = radius * 0.7 + Math.sin(this.animTime * 3 + phase + index) * radius * 0.18
+      const lx = x + Math.cos(angle) * wobble * 0.6
+      const ly = y + Math.sin(angle) * wobble * 0.6
+      this.entities.circle(lx, ly, radius * 0.55).fill({ color: 0x1a0f24, alpha: 0.85 })
+    }
+    this.entities
+      .circle(x, y, radius)
+      .fill({ color: 0x150b1e, alpha: 0.96 })
+      .stroke({ color: accent, width: 2, alpha: 0.7 })
+    // scattered eyes, sizes vary, blinking via time
+    const eyes = [
+      [x - radius * 0.4, y - radius * 0.3, 4],
+      [x + radius * 0.35, y - radius * 0.1, 5.5],
+      [x - radius * 0.1, y + radius * 0.35, 3.5],
+      [x + radius * 0.45, y + radius * 0.4, 3],
+      [x - radius * 0.5, y + radius * 0.2, 2.5],
+      [x + radius * 0.05, y - radius * 0.45, 3],
+    ] as const
+    eyes.forEach(([ex, ey, er], index) => {
+      const open = 0.6 + 0.4 * Math.sin(this.animTime * 2 + index * 1.3)
+      this.drawEye(ex, ey, er * (0.6 + 0.4 * open), accent)
+    })
   }
 
   private drawProjectiles(): void {
@@ -587,35 +1065,33 @@ export class PixiGame {
     this.showReadyScreen()
   }
 
+  // Фаза подготовки: поле открыто для постройки башен, волна стартует по ENTER.
+  // Поэтому здесь не полноэкранная модалка, а компактный баннер под игровым полем.
   private showReadyScreen(): void {
     const snapshot = this.world.snapshot()
     const accent = this.currentLevelAccent()
 
     const overlay = new Container()
-    const shade = new Graphics()
-    shade.rect(0, 0, worldWidth, worldHeight).fill({ color: 0x030607, alpha: 0.5 })
-    overlay.addChild(shade)
+    const bannerWidth = 560
+    const bannerHeight = 52
+    const bx = (worldWidth - bannerWidth) / 2
+    const by = playRect.y + playRect.height + playFramePadding + 4
 
-    const panel = new Container()
-    panel.position.set((worldWidth - 408) / 2, 224)
     const frame = new Graphics()
-    this.drawPanel(frame, 0, 0, 408, 208, 0x0a0f10, accent)
-    panel.addChild(frame)
+    this.drawPanel(frame, bx, by, bannerWidth, bannerHeight, 0x0a0f10, accent)
+    overlay.addChild(frame)
 
-    const eyebrow = new Text({ text: t('ready.level', { n: snapshot.level }), style: this.labelStyle(accent, 14) })
-    eyebrow.anchor.set(0.5)
-    eyebrow.position.set(204, 46)
-    const title = new Text({ text: this.levelName(snapshot.level), style: this.titleStyle(32, 0xf5f5dc) })
-    title.anchor.set(0.5)
-    title.position.set(204, 84)
-    const prompt = new Text({ text: t('ready.prompt'), style: this.labelStyle(0xf5f5dc, 18) })
-    prompt.anchor.set(0.5)
-    prompt.position.set(204, 134)
-    panel.addChild(eyebrow, title, prompt)
+    const info = new Text({
+      text: `${t('ready.level', { n: snapshot.level })} · ${this.levelName(snapshot.level)}`,
+      style: this.labelStyle(accent, 14),
+    })
+    info.position.set(bx + 18, by + 9)
+    const hint = new Text({ text: t('ready.hint'), style: this.smallStyle(0xb7bcae) })
+    hint.position.set(bx + 18, by + 30)
+    overlay.addChild(info, hint)
 
-    panel.addChild(this.createMenuButton(120, 158, 168, 36, t('btn.start'), () => this.beginLevel()))
+    overlay.addChild(this.createMenuButton(bx + bannerWidth - 180, by + 10, 164, 32, t('btn.startWave'), () => this.beginLevel()))
 
-    overlay.addChild(panel)
     this.screenLayer.addChild(overlay)
   }
 
@@ -1047,7 +1523,8 @@ export class PixiGame {
   }
 
   private handleInputDown(point: Vec2, _pointerId: number): void {
-    if (this.screen !== 'playing') {
+    // В фазе 'ready' волна стоит, но поле уже можно застраивать.
+    if (this.screen !== 'playing' && this.screen !== 'ready') {
       return
     }
 
@@ -1055,16 +1532,19 @@ export class PixiGame {
       return
     }
 
-    if (this.pauseButtonAt(point)) {
-      this.audio.playUi()
-      this.showPauseMenu()
-      return
-    }
+    // Кнопки паузы/скорости активны только во время волны.
+    if (this.screen === 'playing') {
+      if (this.pauseButtonAt(point)) {
+        this.audio.playUi()
+        this.showPauseMenu()
+        return
+      }
 
-    if (this.speedButtonAt(point)) {
-      this.audio.playUi()
-      this.cycleGameSpeed()
-      return
+      if (this.speedButtonAt(point)) {
+        this.audio.playUi()
+        this.cycleGameSpeed()
+        return
+      }
     }
 
     const towerAction = this.towerActionAt(point)

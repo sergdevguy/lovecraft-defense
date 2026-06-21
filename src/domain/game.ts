@@ -14,6 +14,16 @@ export type GameSoundEvent =
   | Readonly<{ kind: 'victory' }>
   | Readonly<{ kind: 'defeat' }>
 
+// Визуальные события для presentation-слоя: частицы, тряска, вспышки.
+// Domain их только эмитит, не зная как они рисуются.
+export type GameFxEvent =
+  | Readonly<{ kind: 'muzzle', position: Vec2, towerKind: TowerKind }>
+  | Readonly<{ kind: 'hit', position: Vec2 }>
+  | Readonly<{ kind: 'death', position: Vec2, monsterKind: Monster['kind'] }>
+  | Readonly<{ kind: 'explosion', position: Vec2, radius: number }>
+  | Readonly<{ kind: 'sanityLost', position: Vec2 }>
+  | Readonly<{ kind: 'sign', signKind: SignKind, position: Vec2 }>
+
 export type LevelConfig = Readonly<{
   id: number
   name: string
@@ -289,6 +299,7 @@ export class GameWorld {
   private spawnedInWave = 0
   private selectedTower: TowerKind = 'lantern'
   private soundEvents: GameSoundEvent[] = []
+  private fxEvents: GameFxEvent[] = []
   private id = 0
 
   update(deltaSeconds: number): void {
@@ -330,6 +341,7 @@ export class GameWorld {
     this.spawnedInWave = 0
     this.selectedTower = 'lantern'
     this.soundEvents = []
+    this.fxEvents = []
     this.id = 0
   }
 
@@ -358,6 +370,12 @@ export class GameWorld {
   consumeSoundEvents(): GameSoundEvent[] {
     const events = this.soundEvents
     this.soundEvents = []
+    return events
+  }
+
+  consumeFxEvents(): GameFxEvent[] {
+    const events = this.fxEvents
+    this.fxEvents = []
     return events
   }
 
@@ -426,6 +444,8 @@ export class GameWorld {
     if (points.length < 2 || this.status !== 'playing') {
       return
     }
+
+    this.emitFx({ kind: 'sign', signKind: kind, position: points[0] })
 
     if (kind === 'banish') {
       let kills = 0
@@ -539,10 +559,12 @@ export class GameWorld {
         this.coins += monster.reward
         this.score += monster.reward * 10
         this.emitSound({ kind: 'enemyDeath' })
+        this.emitFx({ kind: 'death', position: monster.position, monsterKind: monster.kind })
         this.say(monster.position, `+${monster.reward}`, 0xbbf7d0)
       } else if (monster.pathProgress >= 1) {
         this.monsters.delete(monster.id)
         this.baseHp -= monster.kind === 'shoggoth' ? 3 : 1
+        this.emitFx({ kind: 'sanityLost', position: monster.position })
         this.say(vec(828, 252), t('fx.sanity'), 0xff8e8e)
         if (this.baseHp <= 0) {
           this.baseHp = 0
@@ -578,6 +600,7 @@ export class GameWorld {
         splashRadius: projectileSplashRadius[tower.kind],
       })
       this.emitSound({ kind: 'towerShoot', towerKind: tower.kind })
+      this.emitFx({ kind: 'muzzle', position: tower.position, towerKind: tower.kind })
       tower.cooldown = tower.fireRate
     }
   }
@@ -598,6 +621,7 @@ export class GameWorld {
         } else {
           target.hp -= projectile.damage
           this.say(target.position, `-${projectile.damage}`, 0xfcd34d)
+          this.emitFx({ kind: 'hit', position: target.position })
         }
         this.projectiles.delete(projectile.id)
       } else {
@@ -619,6 +643,7 @@ export class GameWorld {
       hits += 1
     }
     this.say(center, hits > 1 ? t('fx.boom', { n: damage }) : `-${damage}`, 0xfca5a5)
+    this.emitFx({ kind: 'explosion', position: center, radius })
   }
 
   private updateFloatingTexts(deltaSeconds: number): void {
@@ -673,6 +698,10 @@ export class GameWorld {
 
   private emitSound(event: GameSoundEvent): void {
     this.soundEvents.push(event)
+  }
+
+  private emitFx(event: GameFxEvent): void {
+    this.fxEvents.push(event)
   }
 
   private nextId(prefix: string): string {
