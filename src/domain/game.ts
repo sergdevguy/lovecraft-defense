@@ -95,29 +95,29 @@ const monsterBook: Record<Monster['kind'], Omit<Monster, 'id' | 'position' | 'pa
 
 const towerBook: Record<TowerKind, Omit<Tower, 'id' | 'position' | 'cooldown' | 'level' | 'invested'>> = {
   lantern: { kind: 'lantern', range: 140, fireRate: 0.50, damage: 15 },
-  obelisk: { kind: 'obelisk', range: 100, fireRate: 1.50, damage: 35 },
-  idol: { kind: 'idol', range: 200, fireRate: 2.50, damage: 50 },
+  obelisk: { kind: 'obelisk', range: 100, fireRate: 1.50, damage: 50 },
+  idol: { kind: 'idol', range: 200, fireRate: 2.50, damage: 70 },
 }
 
 const towerCost: Record<TowerKind, number> = {
-  lantern: 36,
-  obelisk: 68,
-  idol: 52,
+  lantern: 40,
+  obelisk: 70,
+  idol: 90,
 }
 
 const projectileSpeed: Record<TowerKind, number> = {
   lantern: 400,
   obelisk: 300,
-  idol: 500,
+  idol: 600,
 }
 
 export const levels: readonly LevelConfig[] = [
-  { id: 1, name: 'Innsmouth Coast', subtitle: 'A drowned road under watchful stars', accentColor: 0x81f5e1, difficultyMultiplier: 1, maxWave: 1 },
-  { id: 2, name: 'Black Reef', subtitle: 'The tide brings older hunger', accentColor: 0x67e8f9, difficultyMultiplier: 1.18, maxWave: 1 },
-  { id: 3, name: 'Miskatonic Gate', subtitle: 'Ruins breathe beneath the stones', accentColor: 0xc4b5fd, difficultyMultiplier: 1.38, maxWave: 1 },
-  { id: 4, name: "R'lyeh Shoals", subtitle: 'Geometry bends toward the deep', accentColor: 0x5eead4, difficultyMultiplier: 1.62, maxWave: 1 },
-  { id: 5, name: 'Elder Causeway', subtitle: 'No lantern burns without a cost', accentColor: 0xfcd34d, difficultyMultiplier: 1.9, maxWave: 1 },
-  { id: 6, name: 'The Sunken Throne', subtitle: 'The dreamer stirs below', accentColor: 0xfb7185, difficultyMultiplier: 2.25, maxWave: 1 },
+  { id: 1, name: 'Innsmouth Coast', subtitle: 'A drowned road under watchful stars', accentColor: 0x81f5e1, difficultyMultiplier: 1, maxWave: 12 },
+  { id: 2, name: 'Black Reef', subtitle: 'The tide brings older hunger', accentColor: 0x67e8f9, difficultyMultiplier: 1.18, maxWave: 12 },
+  { id: 3, name: 'Miskatonic Gate', subtitle: 'Ruins breathe beneath the stones', accentColor: 0xc4b5fd, difficultyMultiplier: 1.38, maxWave: 12 },
+  { id: 4, name: "R'lyeh Shoals", subtitle: 'Geometry bends toward the deep', accentColor: 0x5eead4, difficultyMultiplier: 1.62, maxWave: 12 },
+  { id: 5, name: 'Elder Causeway', subtitle: 'No lantern burns without a cost', accentColor: 0xfcd34d, difficultyMultiplier: 1.9, maxWave: 12 },
+  { id: 6, name: 'The Sunken Throne', subtitle: 'The dreamer stirs below', accentColor: 0xfb7185, difficultyMultiplier: 2.25, maxWave: 12 },
 ]
 
 type LevelLayout = Readonly<{

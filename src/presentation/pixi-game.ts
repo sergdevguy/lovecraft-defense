@@ -176,7 +176,7 @@ export class PixiGame {
   async mount(element: HTMLElement): Promise<void> {
     await this.app.init({
       resizeTo: element,
-      background: '#080c0e',
+      background: '#101517',
       antialias: true,
       resolution: window.devicePixelRatio,
       autoDensity: true,
@@ -284,7 +284,7 @@ export class PixiGame {
   }
 
   private drawBackground(): void {
-    this.board.rect(0, 0, worldWidth, worldHeight).fill(0x080c0e)
+    this.board.rect(0, 0, worldWidth, worldHeight).fill(0x101517)
 
     for (let index = 0; index < 18; index += 1) {
       const x = 40 + index * 67
