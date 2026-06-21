@@ -130,6 +130,43 @@ const projectileSplashRadius: Record<TowerKind, number> = {
   idol: 0,
 }
 
+// Урон базе при прорыве монстра к порталу (см. updateMonsters).
+const monsterBaseDamage: Record<Monster['kind'], number> = {
+  cultist: 1,
+  deepOne: 1,
+  shoggoth: 3,
+}
+
+// Публичные read-only каталоги для UI (справочник «Как играть»).
+export type TowerInfo = Readonly<{
+  kind: TowerKind
+  range: number
+  fireRate: number
+  damage: number
+  cost: number
+  splashRadius: number
+}>
+
+export const towerCatalog: Readonly<Record<TowerKind, TowerInfo>> = {
+  lantern: { ...towerBook.lantern, cost: towerCost.lantern, splashRadius: projectileSplashRadius.lantern },
+  obelisk: { ...towerBook.obelisk, cost: towerCost.obelisk, splashRadius: projectileSplashRadius.obelisk },
+  idol: { ...towerBook.idol, cost: towerCost.idol, splashRadius: projectileSplashRadius.idol },
+}
+
+export type MonsterInfo = Readonly<{
+  kind: Monster['kind']
+  hp: number
+  speed: number
+  reward: number
+  baseDamage: number
+}>
+
+export const monsterCatalog: Readonly<Record<Monster['kind'], MonsterInfo>> = {
+  cultist: { kind: 'cultist', hp: monsterBook.cultist.hp, speed: monsterBook.cultist.speed, reward: monsterBook.cultist.reward, baseDamage: monsterBaseDamage.cultist },
+  deepOne: { kind: 'deepOne', hp: monsterBook.deepOne.hp, speed: monsterBook.deepOne.speed, reward: monsterBook.deepOne.reward, baseDamage: monsterBaseDamage.deepOne },
+  shoggoth: { kind: 'shoggoth', hp: monsterBook.shoggoth.hp, speed: monsterBook.shoggoth.speed, reward: monsterBook.shoggoth.reward, baseDamage: monsterBaseDamage.shoggoth },
+}
+
 export const levels: readonly LevelConfig[] = [
   { id: 1, name: 'Innsmouth Coast', subtitle: 'A drowned road under watchful stars', accentColor: 0x81f5e1, difficultyMultiplier: 1, maxWave: 12 },
   { id: 2, name: 'Black Reef', subtitle: 'The tide brings older hunger', accentColor: 0x67e8f9, difficultyMultiplier: 1.18, maxWave: 12 },

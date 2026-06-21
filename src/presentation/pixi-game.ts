@@ -158,7 +158,20 @@ type Particle = {
   glow: boolean
 }
 
+// Расширяющееся кольцо: попадания, взрывы, смерти, касты рун.
+type Ring = {
+  x: number
+  y: number
+  radius: number
+  maxRadius: number
+  life: number
+  maxLife: number
+  color: number
+  width: number
+}
+
 const maxParticles = 420
+const maxRings = 80
 
 const signFxColor: Record<'banish' | 'elder' | 'spiral', number> = {
   banish: 0x9dfcf4,
@@ -173,6 +186,7 @@ export class PixiGame {
   private readonly audio = new AudioMixer()
   private readonly root = new Container()
   private readonly board = new Graphics()
+  private readonly fog = new Graphics()
   private readonly entities = new Graphics()
   private readonly glow = new Graphics()
   private readonly vignette = new Graphics()
@@ -180,6 +194,7 @@ export class PixiGame {
   private readonly flash = new Graphics()
   private readonly grainFilter = new NoiseFilter({ noise: 0.55 })
   private particles: Particle[] = []
+  private rings: Ring[] = []
   private shakeMag = 0
   private signFlashTime = 0
   private signFlashColor = 0xffffff
@@ -230,6 +245,7 @@ export class PixiGame {
   private initGameScene(): void {
     this.root.addChild(
       this.board,
+      this.fog,
       this.entities,
       this.glow,
       this.vignette,
@@ -277,12 +293,14 @@ export class PixiGame {
       this.world.update(Math.min(deltaSeconds * speed, 0.05 * speed))
       this.playWorldSounds()
       this.consumeFxEvents()
+      this.spawnProjectileTrails()
       const status = this.world.snapshot().status
       if (status === 'victory' || status === 'defeat') {
         this.showEndScreen(status)
       }
     }
     this.updateParticles(dt)
+    this.updateRings(dt)
     this.shakeMag = Math.max(0, this.shakeMag - dt * 42)
     this.signFlashTime = Math.max(0, this.signFlashTime - dt)
     this.render()
@@ -298,6 +316,7 @@ export class PixiGame {
   private render(): void {
     const snapshot = this.world.snapshot()
     this.board.clear()
+    this.fog.clear()
     this.entities.clear()
     this.glow.clear()
     this.vignette.clear()
@@ -305,6 +324,8 @@ export class PixiGame {
     this.flash.clear()
     this.hud.clear()
     this.hudText.removeChildren().forEach((child) => child.destroy())
+
+    this.drawFog()
 
     if (this.screen === 'mainMenu') {
       this.drawMenuBackground()
@@ -331,6 +352,7 @@ export class PixiGame {
     }
 
     this.drawParticles()
+    this.drawRings()
     this.drawGlow(snapshot)
     this.drawVignette(snapshot.baseHp)
     this.drawGrain()
@@ -340,6 +362,8 @@ export class PixiGame {
   private setupFilters(): void {
     this.glow.filters = [new BlurFilter({ strength: 12, quality: 3 })]
     this.glow.blendMode = 'add'
+    this.fog.filters = [new BlurFilter({ strength: 22, quality: 2 })]
+    this.fog.blendMode = 'screen'
     this.grain.filters = [this.grainFilter]
     this.grain.blendMode = 'add'
     this.grain.alpha = 0.05
@@ -434,6 +458,60 @@ export class PixiGame {
     }
   }
 
+  // Короткоживущая частица-шлейф в позиции каждого летящего снаряда.
+  private spawnProjectileTrails(): void {
+    for (const projectile of this.world.snapshot().projectiles) {
+      if (this.particles.length >= maxParticles) {
+        break
+      }
+      const smoke = projectile.splashRadius > 0
+      this.particles.push({
+        x: projectile.position.x,
+        y: projectile.position.y,
+        vx: (Math.random() * 2 - 1) * 12,
+        vy: (Math.random() * 2 - 1) * 12,
+        life: smoke ? 0.4 : 0.22,
+        maxLife: smoke ? 0.4 : 0.22,
+        size: smoke ? 3.2 : 2,
+        color: smoke ? 0x6b7280 : 0xfde68a,
+        gravity: smoke ? -14 : 0,
+        drag: 3,
+        glow: !smoke,
+      })
+    }
+  }
+
+  // === Кольца (расширяющиеся ударные волны) ================================
+
+  private spawnRing(x: number, y: number, maxRadius: number, life: number, color: number, width: number): void {
+    if (this.rings.length >= maxRings) {
+      this.rings.shift()
+    }
+    this.rings.push({ x, y, radius: maxRadius * 0.15, maxRadius, life, maxLife: life, color, width })
+  }
+
+  private updateRings(dt: number): void {
+    const survivors: Ring[] = []
+    for (const ring of this.rings) {
+      ring.life -= dt
+      if (ring.life <= 0) {
+        continue
+      }
+      const progress = 1 - ring.life / ring.maxLife
+      ring.radius = ring.maxRadius * (0.15 + 0.85 * progress)
+      survivors.push(ring)
+    }
+    this.rings = survivors
+  }
+
+  private drawRings(): void {
+    for (const ring of this.rings) {
+      const fade = Math.max(0, ring.life / ring.maxLife)
+      this.entities.circle(ring.x, ring.y, ring.radius).stroke({ color: ring.color, width: ring.width * fade + 0.5, alpha: 0.5 * fade })
+      this.glow.circle(ring.x, ring.y, ring.radius).stroke({ color: ring.color, width: ring.width * fade + 1, alpha: 0.18 * fade })
+    }
+  }
+
   // === Тряска экрана =======================================================
 
   private addShake(magnitude: number): void {
@@ -498,6 +576,7 @@ export class PixiGame {
         break
       case 'hit':
         this.spawnBurst(x, y, 7, { speed: 130, life: 0.3, size: 2.2, color: 0xfde68a, drag: 3 })
+        this.spawnRing(x, y, 22, 0.3, 0xfde68a, 2)
         break
       case 'death': {
         const color = event.monsterKind === 'shoggoth' ? 0xf0abfc : event.monsterKind === 'deepOne' ? 0x67e8f9 : 0x86efac
@@ -505,6 +584,7 @@ export class PixiGame {
         this.spawnBurst(x, y, count, { speed: 150, life: 0.55, size: 3, color, drag: 2.4 })
         // чернильное пятно — тёмные тяжёлые брызги
         this.spawnBurst(x, y, Math.round(count / 2), { speed: 70, life: 0.8, size: 4.5, color: 0x0a0510, gravity: 60, drag: 1.4, glow: false })
+        this.spawnRing(x, y, event.monsterKind === 'shoggoth' ? 56 : 34, 0.45, color, 3)
         if (event.monsterKind === 'shoggoth') {
           this.addShake(5)
         }
@@ -513,10 +593,12 @@ export class PixiGame {
       case 'explosion':
         this.spawnBurst(x, y, 24, { speed: event.radius * 3, life: 0.5, size: 3.4, color: 0xfca5a5, drag: 2.6 })
         this.spawnBurst(x, y, 10, { speed: event.radius * 1.6, life: 0.7, size: 2.2, color: 0xfff1f2, drag: 2 })
+        this.spawnRing(x, y, event.radius, 0.45, 0xfca5a5, 4)
         this.addShake(Math.min(11, event.radius / 7))
         break
       case 'sanityLost':
         this.spawnBurst(x, y, 14, { speed: 120, life: 0.5, size: 3, color: 0xff8e8e, drag: 2.4 })
+        this.spawnRing(x, y, 48, 0.5, 0xff8e8e, 3)
         this.signFlashTime = 0.45
         this.signFlashColor = 0x7f1d1d
         this.addShake(7)
@@ -525,6 +607,7 @@ export class PixiGame {
         this.signFlashColor = signFxColor[event.signKind]
         this.signFlashTime = 0.45
         this.spawnBurst(x, y, 18, { speed: 170, life: 0.5, size: 3, color: signFxColor[event.signKind], drag: 2.2 })
+        this.spawnRing(x, y, 90, 0.6, signFxColor[event.signKind], 3)
         this.addShake(4)
         break
     }
@@ -565,12 +648,24 @@ export class PixiGame {
     }
   }
 
+  // Живой параллакс-туман: три слоя клубов дрейфуют с разной скоростью.
+  // Рисуется в отдельный слой с сильным blur и blend 'screen' — мягкая дымка.
   private drawFog(): void {
-    for (let index = 0; index < 7; index += 1) {
-      const drift = Math.sin(this.animTime * 0.18 + index) * 26
-      const x = 70 + index * 120 + drift
-      const y = 120 + (index % 3) * 190
-      this.board.ellipse(x, y, 150, 64).fill({ color: 0x16303a, alpha: 0.07 })
+    const layers = [
+      { count: 5, speed: 14, radiusX: 200, radiusY: 86, alpha: 0.05, color: 0x1c4a52, y0: 150 },
+      { count: 6, speed: 26, radiusX: 150, radiusY: 64, alpha: 0.06, color: 0x274e54, y0: 320 },
+      { count: 7, speed: 40, radiusX: 110, radiusY: 50, alpha: 0.05, color: 0x356b6f, y0: 470 },
+    ]
+    for (let layer = 0; layer < layers.length; layer += 1) {
+      const { count, speed, radiusX, radiusY, alpha, color, y0 } = layers[layer]
+      const spacing = (worldWidth + radiusX * 2) / count
+      for (let index = 0; index < count; index += 1) {
+        const drift = (this.animTime * speed + index * spacing) % (worldWidth + radiusX * 2)
+        const x = drift - radiusX
+        const bob = Math.sin(this.animTime * 0.5 + index + layer) * 24
+        const y = y0 + bob + (index % 2) * 70
+        this.fog.ellipse(x, y, radiusX, radiusY).fill({ color, alpha })
+      }
     }
   }
 
@@ -602,7 +697,6 @@ export class PixiGame {
   private drawMenuBackground(): void {
     this.drawDeepGradient(0x05161c, 0x010608)
     this.drawStarfield(worldHeight, 90)
-    this.drawFog()
 
     // Looming Cthulhu silhouette behind the menu — head + wing arcs + many eyes.
     const cx = worldWidth / 2
@@ -632,7 +726,6 @@ export class PixiGame {
   private drawBackground(): void {
     this.drawDeepGradient(0x0a1c22, 0x040b0e)
     this.drawStarfield(playRect.y, 46)
-    this.drawFog()
 
     this.drawPanel(
       this.board,
@@ -700,7 +793,43 @@ export class PixiGame {
       }
     }
 
+    this.drawPathFlow(path)
     this.drawBase(path[path.length - 1])
+  }
+
+  // Бегущие к базе искры энергии — путь "дышит" и тянет монстров к порталу.
+  private drawPathFlow(path: Vec2[]): void {
+    if (path.length < 2) {
+      return
+    }
+    const pulses = 8
+    const accent = this.currentLevelAccent()
+    for (let index = 0; index < pulses; index += 1) {
+      const frac = (this.animTime * 0.16 + index / pulses) % 1
+      const pos = this.pointOnPath(path, frac)
+      const twinkle = 0.5 + 0.5 * Math.sin(this.animTime * 4 + index)
+      this.board.circle(pos.x, pos.y, 3).fill({ color: accent, alpha: 0.4 + twinkle * 0.3 })
+      this.glow.circle(pos.x, pos.y, 11).fill({ color: accent, alpha: 0.1 + twinkle * 0.05 })
+    }
+  }
+
+  private pointOnPath(path: Vec2[], frac: number): Vec2 {
+    let total = 0
+    for (let index = 0; index < path.length - 1; index += 1) {
+      total += distance(path[index], path[index + 1])
+    }
+    let remaining = Math.max(0, Math.min(1, frac)) * total
+    for (let index = 0; index < path.length - 1; index += 1) {
+      const from = path[index]
+      const to = path[index + 1]
+      const segment = distance(from, to)
+      if (remaining <= segment) {
+        const t = segment === 0 ? 0 : remaining / segment
+        return vec(from.x + (to.x - from.x) * t, from.y + (to.y - from.y) * t)
+      }
+      remaining -= segment
+    }
+    return path[path.length - 1]
   }
 
   // The base under siege: an eldritch idol-gate where the deep ones break through.
@@ -784,6 +913,15 @@ export class PixiGame {
 
       // contact shadow
       this.entities.ellipse(x, y + radius * 0.7, radius * 1.1, radius * 0.45).fill({ color: 0x020708, alpha: 0.55 })
+
+      // рябь воды — расходящиеся круги под бредущим монстром
+      for (let ripple = 0; ripple < 2; ripple += 1) {
+        const cycle = (this.animTime * 0.8 + phase + ripple * 0.5) % 1
+        const rippleRadius = radius * (0.6 + cycle * 1.4)
+        this.entities
+          .ellipse(x, y + radius * 0.7, rippleRadius, rippleRadius * 0.4)
+          .stroke({ color: 0x3a6b6f, width: 1, alpha: 0.28 * (1 - cycle) })
+      }
 
       if (monster.kind === 'cultist') {
         this.drawCultist(x, y + bob, radius, phase)
@@ -1052,6 +1190,10 @@ export class PixiGame {
     this.audio.startTheme()
     this.selectedLevelId = levelId
     this.world.reset(levelId)
+    this.particles = []
+    this.rings = []
+    this.shakeMag = 0
+    this.signFlashTime = 0
     this.clearScreenLayer()
     this.closeTowerMenu()
     this.closeTowerActionMenu()
