@@ -1,5 +1,6 @@
 import type { Vec2 } from './geometry'
 import { add, clamp, distance, lerp, normalize, scale, vec } from './geometry'
+import { t } from '../i18n'
 
 export type TowerKind = 'lantern' | 'obelisk' | 'idol'
 
@@ -12,6 +13,16 @@ export type GameSoundEvent =
   | Readonly<{ kind: 'enemyDeath' }>
   | Readonly<{ kind: 'victory' }>
   | Readonly<{ kind: 'defeat' }>
+
+// Визуальные события для presentation-слоя: частицы, тряска, вспышки.
+// Domain их только эмитит, не зная как они рисуются.
+export type GameFxEvent =
+  | Readonly<{ kind: 'muzzle', position: Vec2, towerKind: TowerKind }>
+  | Readonly<{ kind: 'hit', position: Vec2 }>
+  | Readonly<{ kind: 'death', position: Vec2, monsterKind: Monster['kind'] }>
+  | Readonly<{ kind: 'explosion', position: Vec2, radius: number }>
+  | Readonly<{ kind: 'sanityLost', position: Vec2 }>
+  | Readonly<{ kind: 'sign', signKind: SignKind, position: Vec2 }>
 
 export type LevelConfig = Readonly<{
   id: number
@@ -52,6 +63,7 @@ export type Projectile = {
   targetId: string
   speed: number
   damage: number
+  splashRadius: number
 }
 
 export type FloatingText = {
@@ -109,6 +121,50 @@ const projectileSpeed: Record<TowerKind, number> = {
   lantern: 400,
   obelisk: 300,
   idol: 600,
+}
+
+// Obelisk = mortar: lobs shells that explode and damage all enemies in a radius.
+const projectileSplashRadius: Record<TowerKind, number> = {
+  lantern: 0,
+  obelisk: 78,
+  idol: 0,
+}
+
+// Урон базе при прорыве монстра к порталу (см. updateMonsters).
+const monsterBaseDamage: Record<Monster['kind'], number> = {
+  cultist: 1,
+  deepOne: 1,
+  shoggoth: 3,
+}
+
+// Публичные read-only каталоги для UI (справочник «Как играть»).
+export type TowerInfo = Readonly<{
+  kind: TowerKind
+  range: number
+  fireRate: number
+  damage: number
+  cost: number
+  splashRadius: number
+}>
+
+export const towerCatalog: Readonly<Record<TowerKind, TowerInfo>> = {
+  lantern: { ...towerBook.lantern, cost: towerCost.lantern, splashRadius: projectileSplashRadius.lantern },
+  obelisk: { ...towerBook.obelisk, cost: towerCost.obelisk, splashRadius: projectileSplashRadius.obelisk },
+  idol: { ...towerBook.idol, cost: towerCost.idol, splashRadius: projectileSplashRadius.idol },
+}
+
+export type MonsterInfo = Readonly<{
+  kind: Monster['kind']
+  hp: number
+  speed: number
+  reward: number
+  baseDamage: number
+}>
+
+export const monsterCatalog: Readonly<Record<Monster['kind'], MonsterInfo>> = {
+  cultist: { kind: 'cultist', hp: monsterBook.cultist.hp, speed: monsterBook.cultist.speed, reward: monsterBook.cultist.reward, baseDamage: monsterBaseDamage.cultist },
+  deepOne: { kind: 'deepOne', hp: monsterBook.deepOne.hp, speed: monsterBook.deepOne.speed, reward: monsterBook.deepOne.reward, baseDamage: monsterBaseDamage.deepOne },
+  shoggoth: { kind: 'shoggoth', hp: monsterBook.shoggoth.hp, speed: monsterBook.shoggoth.speed, reward: monsterBook.shoggoth.reward, baseDamage: monsterBaseDamage.shoggoth },
 }
 
 export const levels: readonly LevelConfig[] = [
@@ -280,6 +336,7 @@ export class GameWorld {
   private spawnedInWave = 0
   private selectedTower: TowerKind = 'lantern'
   private soundEvents: GameSoundEvent[] = []
+  private fxEvents: GameFxEvent[] = []
   private id = 0
 
   update(deltaSeconds: number): void {
@@ -321,6 +378,7 @@ export class GameWorld {
     this.spawnedInWave = 0
     this.selectedTower = 'lantern'
     this.soundEvents = []
+    this.fxEvents = []
     this.id = 0
   }
 
@@ -352,6 +410,12 @@ export class GameWorld {
     return events
   }
 
+  consumeFxEvents(): GameFxEvent[] {
+    const events = this.fxEvents
+    this.fxEvents = []
+    return events
+  }
+
   buildTower(slotId: string, kind = this.selectedTower): boolean {
     if (this.status !== 'playing') {
       return false
@@ -374,7 +438,7 @@ export class GameWorld {
     this.coins -= towerCost[kind]
     slot.occupiedBy = tower.id
     this.towers.set(tower.id, tower)
-    this.say(slot.position, kind, 0xd8f4ff)
+    this.say(slot.position, t(`tower.${kind}`), 0xd8f4ff)
     return true
   }
 
@@ -391,7 +455,7 @@ export class GameWorld {
     tower.damage = Math.round(tower.damage * (tower.level === 2 ? 1.35 : 1.45))
     tower.range = Math.round(tower.range * 1.1)
     tower.fireRate *= 0.9
-    this.say(tower.position, `level ${tower.level}`, 0xfef3c7)
+    this.say(tower.position, t('fx.upgrade', { n: tower.level }), 0xfef3c7)
     return true
   }
 
@@ -417,6 +481,8 @@ export class GameWorld {
     if (points.length < 2 || this.status !== 'playing') {
       return
     }
+
+    this.emitFx({ kind: 'sign', signKind: kind, position: points[0] })
 
     if (kind === 'banish') {
       let kills = 0
@@ -484,7 +550,7 @@ export class GameWorld {
         if (this.wave >= this.currentLevel.maxWave) {
           this.status = 'victory'
           this.emitSound({ kind: 'victory' })
-          this.say(vec(476, 86), 'victory', 0xbbf7d0)
+          this.say(vec(476, 86), t('fx.victory'), 0xbbf7d0)
           return
         }
 
@@ -492,7 +558,7 @@ export class GameWorld {
         this.spawnedInWave = 0
         this.spawnTimer = 1.4
         this.coins += 22
-        this.say(vec(476, 86), `wave ${this.wave}`, 0xfff7bc)
+        this.say(vec(476, 86), t('fx.wave', { n: this.wave }), 0xfff7bc)
       }
       return
     }
@@ -530,11 +596,13 @@ export class GameWorld {
         this.coins += monster.reward
         this.score += monster.reward * 10
         this.emitSound({ kind: 'enemyDeath' })
+        this.emitFx({ kind: 'death', position: monster.position, monsterKind: monster.kind })
         this.say(monster.position, `+${monster.reward}`, 0xbbf7d0)
       } else if (monster.pathProgress >= 1) {
         this.monsters.delete(monster.id)
         this.baseHp -= monster.kind === 'shoggoth' ? 3 : 1
-        this.say(vec(828, 252), '-sanity', 0xff8e8e)
+        this.emitFx({ kind: 'sanityLost', position: monster.position })
+        this.say(vec(828, 252), t('fx.sanity'), 0xff8e8e)
         if (this.baseHp <= 0) {
           this.baseHp = 0
           this.status = 'defeat'
@@ -566,8 +634,10 @@ export class GameWorld {
         targetId: target.id,
         speed: projectileSpeed[tower.kind],
         damage: tower.damage,
+        splashRadius: projectileSplashRadius[tower.kind],
       })
       this.emitSound({ kind: 'towerShoot', towerKind: tower.kind })
+      this.emitFx({ kind: 'muzzle', position: tower.position, towerKind: tower.kind })
       tower.cooldown = tower.fireRate
     }
   }
@@ -583,13 +653,34 @@ export class GameWorld {
       const toTarget = add(target.position, scale(projectile.position, -1))
       const step = projectile.speed * deltaSeconds
       if (distance(projectile.position, target.position) <= step) {
-        target.hp -= projectile.damage
-        this.say(target.position, `-${projectile.damage}`, 0xfcd34d)
+        if (projectile.splashRadius > 0) {
+          this.explode(target.position, projectile.damage, projectile.splashRadius)
+        } else {
+          target.hp -= projectile.damage
+          this.say(target.position, `-${projectile.damage}`, 0xfcd34d)
+          this.emitFx({ kind: 'hit', position: target.position })
+        }
         this.projectiles.delete(projectile.id)
       } else {
         projectile.position = add(projectile.position, scale(normalize(toTarget), step))
       }
     }
+  }
+
+  private explode(center: Vec2, damage: number, radius: number): void {
+    let hits = 0
+    for (const monster of this.monsters.values()) {
+      const dist = distance(monster.position, center)
+      if (dist > radius) {
+        continue
+      }
+      // full damage at center, fading to 40% at the edge
+      const falloff = 1 - 0.6 * (dist / radius)
+      monster.hp -= damage * falloff
+      hits += 1
+    }
+    this.say(center, hits > 1 ? t('fx.boom', { n: damage }) : `-${damage}`, 0xfca5a5)
+    this.emitFx({ kind: 'explosion', position: center, radius })
   }
 
   private updateFloatingTexts(deltaSeconds: number): void {
@@ -644,6 +735,10 @@ export class GameWorld {
 
   private emitSound(event: GameSoundEvent): void {
     this.soundEvents.push(event)
+  }
+
+  private emitFx(event: GameFxEvent): void {
+    this.fxEvents.push(event)
   }
 
   private nextId(prefix: string): string {
