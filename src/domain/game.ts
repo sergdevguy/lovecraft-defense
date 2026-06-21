@@ -1,5 +1,6 @@
 import type { Vec2 } from './geometry'
 import { add, clamp, distance, lerp, normalize, scale, vec } from './geometry'
+import { t } from '../i18n'
 
 export type TowerKind = 'lantern' | 'obelisk' | 'idol'
 
@@ -52,6 +53,7 @@ export type Projectile = {
   targetId: string
   speed: number
   damage: number
+  splashRadius: number
 }
 
 export type FloatingText = {
@@ -109,6 +111,13 @@ const projectileSpeed: Record<TowerKind, number> = {
   lantern: 400,
   obelisk: 300,
   idol: 600,
+}
+
+// Obelisk = mortar: lobs shells that explode and damage all enemies in a radius.
+const projectileSplashRadius: Record<TowerKind, number> = {
+  lantern: 0,
+  obelisk: 78,
+  idol: 0,
 }
 
 export const levels: readonly LevelConfig[] = [
@@ -374,7 +383,7 @@ export class GameWorld {
     this.coins -= towerCost[kind]
     slot.occupiedBy = tower.id
     this.towers.set(tower.id, tower)
-    this.say(slot.position, kind, 0xd8f4ff)
+    this.say(slot.position, t(`tower.${kind}`), 0xd8f4ff)
     return true
   }
 
@@ -391,7 +400,7 @@ export class GameWorld {
     tower.damage = Math.round(tower.damage * (tower.level === 2 ? 1.35 : 1.45))
     tower.range = Math.round(tower.range * 1.1)
     tower.fireRate *= 0.9
-    this.say(tower.position, `level ${tower.level}`, 0xfef3c7)
+    this.say(tower.position, t('fx.upgrade', { n: tower.level }), 0xfef3c7)
     return true
   }
 
@@ -484,7 +493,7 @@ export class GameWorld {
         if (this.wave >= this.currentLevel.maxWave) {
           this.status = 'victory'
           this.emitSound({ kind: 'victory' })
-          this.say(vec(476, 86), 'victory', 0xbbf7d0)
+          this.say(vec(476, 86), t('fx.victory'), 0xbbf7d0)
           return
         }
 
@@ -492,7 +501,7 @@ export class GameWorld {
         this.spawnedInWave = 0
         this.spawnTimer = 1.4
         this.coins += 22
-        this.say(vec(476, 86), `wave ${this.wave}`, 0xfff7bc)
+        this.say(vec(476, 86), t('fx.wave', { n: this.wave }), 0xfff7bc)
       }
       return
     }
@@ -534,7 +543,7 @@ export class GameWorld {
       } else if (monster.pathProgress >= 1) {
         this.monsters.delete(monster.id)
         this.baseHp -= monster.kind === 'shoggoth' ? 3 : 1
-        this.say(vec(828, 252), '-sanity', 0xff8e8e)
+        this.say(vec(828, 252), t('fx.sanity'), 0xff8e8e)
         if (this.baseHp <= 0) {
           this.baseHp = 0
           this.status = 'defeat'
@@ -566,6 +575,7 @@ export class GameWorld {
         targetId: target.id,
         speed: projectileSpeed[tower.kind],
         damage: tower.damage,
+        splashRadius: projectileSplashRadius[tower.kind],
       })
       this.emitSound({ kind: 'towerShoot', towerKind: tower.kind })
       tower.cooldown = tower.fireRate
@@ -583,13 +593,32 @@ export class GameWorld {
       const toTarget = add(target.position, scale(projectile.position, -1))
       const step = projectile.speed * deltaSeconds
       if (distance(projectile.position, target.position) <= step) {
-        target.hp -= projectile.damage
-        this.say(target.position, `-${projectile.damage}`, 0xfcd34d)
+        if (projectile.splashRadius > 0) {
+          this.explode(target.position, projectile.damage, projectile.splashRadius)
+        } else {
+          target.hp -= projectile.damage
+          this.say(target.position, `-${projectile.damage}`, 0xfcd34d)
+        }
         this.projectiles.delete(projectile.id)
       } else {
         projectile.position = add(projectile.position, scale(normalize(toTarget), step))
       }
     }
+  }
+
+  private explode(center: Vec2, damage: number, radius: number): void {
+    let hits = 0
+    for (const monster of this.monsters.values()) {
+      const dist = distance(monster.position, center)
+      if (dist > radius) {
+        continue
+      }
+      // full damage at center, fading to 40% at the edge
+      const falloff = 1 - 0.6 * (dist / radius)
+      monster.hp -= damage * falloff
+      hits += 1
+    }
+    this.say(center, hits > 1 ? t('fx.boom', { n: damage }) : `-${damage}`, 0xfca5a5)
   }
 
   private updateFloatingTexts(deltaSeconds: number): void {

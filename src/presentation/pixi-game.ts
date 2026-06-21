@@ -18,6 +18,8 @@ import type { GameSoundEvent, GameStatus, LevelConfig, TowerKind, TowerSlot } fr
 import { GameWorld, levels } from '../domain/game'
 import type { Vec2 } from '../domain/geometry'
 import { distance, vec } from '../domain/geometry'
+import type { Locale } from '../i18n'
+import { getLocale, locales, localeNames, onLocaleChange, setLocale, t } from '../i18n'
 
 const worldWidth = 850
 const worldHeight = 720
@@ -31,7 +33,7 @@ const towerMenuOptionHeight = 62
 const speedButtonSize = 42
 const speedButtonPadding = 20
 
-type ScreenState = 'mainMenu' | 'levelSelect' | 'playing' | 'victory' | 'defeat'
+type ScreenState = 'mainMenu' | 'levelSelect' | 'ready' | 'playing' | 'victory' | 'defeat'
 type TowerAction = 'upgrade' | 'sell'
 type SoundName =
   | 'uiClick'
@@ -156,6 +158,9 @@ export class PixiGame {
   private readonly hudText = new Container()
   private readonly hint = new Text({ text: '', style: this.smallStyle(0xa7f3d0) })
   private readonly screenLayer = new Container()
+  private readonly settingsButton = new Container()
+  private readonly settingsLayer = new Container()
+  private isSettingsOpen = false
   private readonly speedModes = [1, 2, 4] as const
   private screen: ScreenState = 'mainMenu'
   private selectedLevelId = 1
@@ -200,9 +205,13 @@ export class PixiGame {
       this.pauseButton,
       this.speedButton,
       this.screenLayer,
+      this.settingsButton,
+      this.settingsLayer,
     )
     this.drawPauseButton()
     this.drawSpeedButton()
+    this.drawSettingsButton()
+    onLocaleChange(() => this.onLocaleChanged())
     this.showMainMenu()
     this.resize()
 
@@ -215,6 +224,7 @@ export class PixiGame {
     this.app.canvas.addEventListener('mouseup', this.onCanvasMouseUp)
     this.app.canvas.addEventListener('mouseleave', this.onCanvasMouseUp)
     this.app.canvas.addEventListener('click', this.onCanvasClick)
+    window.addEventListener('keydown', this.onKeyDown)
     this.app.renderer.on('resize', this.resize)
     this.app.ticker.add((ticker) => this.tick(ticker.deltaMS / 1000))
   }
@@ -251,7 +261,7 @@ export class PixiGame {
       this.drawBackground()
     }
 
-    if (this.screen === 'playing' || this.screen === 'victory' || this.screen === 'defeat') {
+    if (this.screen === 'ready' || this.screen === 'playing' || this.screen === 'victory' || this.screen === 'defeat') {
       this.drawPath(snapshot.path)
       this.drawTowerSlots()
       this.drawTowers()
@@ -404,8 +414,15 @@ export class PixiGame {
 
   private drawProjectiles(): void {
     for (const projectile of this.world.snapshot().projectiles) {
-      this.entities.circle(projectile.position.x, projectile.position.y, 5).fill(0xfef3c7)
-      this.entities.circle(projectile.position.x, projectile.position.y, 10).stroke({ color: 0x81f5e1, width: 1, alpha: 0.18 })
+      if (projectile.splashRadius > 0) {
+        // mortar shell: heavier round trailing the blast radius preview
+        this.entities.circle(projectile.position.x, projectile.position.y, 7).fill(0x4b5563)
+        this.entities.circle(projectile.position.x, projectile.position.y, 7).stroke({ color: 0xfca5a5, width: 2, alpha: 0.9 })
+        this.entities.circle(projectile.position.x, projectile.position.y, projectile.splashRadius).stroke({ color: 0xfb7185, width: 1, alpha: 0.12 })
+      } else {
+        this.entities.circle(projectile.position.x, projectile.position.y, 5).fill(0xfef3c7)
+        this.entities.circle(projectile.position.x, projectile.position.y, 10).stroke({ color: 0x81f5e1, width: 1, alpha: 0.18 })
+      }
     }
   }
 
@@ -472,11 +489,11 @@ export class PixiGame {
     const plaqueGap = 8
     const levelWidth = 236
     const items = [
-      { label: 'SANITY', value: String(snapshot.baseHp), x: frameLeft, width: plaqueWidth, color: 0x86efac },
-      { label: 'COINS', value: String(snapshot.coins), x: frameLeft + (plaqueWidth + plaqueGap), width: plaqueWidth, color: 0xfcd34d },
-      { label: 'WAVE', value: `${snapshot.wave}/${snapshot.maxWave}`, x: frameLeft + (plaqueWidth + plaqueGap) * 2, width: plaqueWidth, color: 0xc4b5fd },
-      { label: 'SCORE', value: String(snapshot.score), x: frameLeft + (plaqueWidth + plaqueGap) * 3, width: plaqueWidth, color: 0xf5f5dc },
-      { label: 'LEVEL', value: snapshot.levelName, x: frameRight - levelWidth, width: levelWidth, color: 0x81f5e1 },
+      { label: t('hud.sanity'), value: String(snapshot.baseHp), x: frameLeft, width: plaqueWidth, color: 0x86efac },
+      { label: t('hud.coins'), value: String(snapshot.coins), x: frameLeft + (plaqueWidth + plaqueGap), width: plaqueWidth, color: 0xfcd34d },
+      { label: t('hud.wave'), value: `${snapshot.wave}/${snapshot.maxWave}`, x: frameLeft + (plaqueWidth + plaqueGap) * 2, width: plaqueWidth, color: 0xc4b5fd },
+      { label: t('hud.score'), value: String(snapshot.score), x: frameLeft + (plaqueWidth + plaqueGap) * 3, width: plaqueWidth, color: 0xf5f5dc },
+      { label: t('hud.level'), value: this.levelName(snapshot.level), x: frameRight - levelWidth, width: levelWidth, color: 0x81f5e1 },
     ]
 
     for (const item of items) {
@@ -501,18 +518,18 @@ export class PixiGame {
     this.drawPanel(frame, 0, 0, 360, 430, 0x0b1113, 0x344247)
     panel.addChild(frame)
 
-    const title = new Text({ text: 'LOVECRAFT', style: this.titleStyle(48, 0xf5f5dc) })
+    const title = new Text({ text: t('app.title'), style: this.titleStyle(48, 0xf5f5dc) })
     title.anchor.set(0.5)
     title.position.set(180, 92)
-    const subtitle = new Text({ text: 'DEFENSE', style: this.labelStyle(0x81f5e1, 20) })
+    const subtitle = new Text({ text: t('app.subtitle'), style: this.labelStyle(0x81f5e1, 20) })
     subtitle.anchor.set(0.5)
     subtitle.position.set(180, 132)
     panel.addChild(title, subtitle)
-    panel.addChild(this.createMenuButton(94, 218, 172, 42, 'START', () => this.showLevelSelect()))
-    panel.addChild(this.createMenuButton(94, 268, 172, 42, 'LEVELS', () => this.showLevelSelect()))
+    panel.addChild(this.createMenuButton(94, 218, 172, 42, t('btn.start'), () => this.showLevelSelect()))
+    panel.addChild(this.createMenuButton(94, 268, 172, 42, t('btn.levels'), () => this.showLevelSelect()))
     // panel.addChild(this.createMenuButton(94, 302, 172, 42, 'SETTINGS', () => undefined))
 
-    const note = new Text({ text: 'Six cursed routes. Twelve waves each.', style: this.smallStyle(0xb7bcae) })
+    const note = new Text({ text: t('menu.note'), style: this.smallStyle(0xb7bcae) })
     note.anchor.set(0.5)
     note.position.set(180, 370)
     panel.addChild(note)
@@ -530,7 +547,7 @@ export class PixiGame {
     this.pauseButton.visible = false
 
     const overlay = this.screenOverlay()
-    const title = new Text({ text: 'SELECT LEVEL', style: this.titleStyle(36, 0xf5f5dc) })
+    const title = new Text({ text: t('levelSelect.title'), style: this.titleStyle(36, 0xf5f5dc) })
     title.anchor.set(0.5)
     title.position.set(worldWidth / 2, 82)
     overlay.addChild(title)
@@ -544,7 +561,7 @@ export class PixiGame {
       const row = Math.floor(index / 3)
       overlay.addChild(this.createLevelCard(level, levelGridX + column * (cardWidth + cardGap), 148 + row * 172))
     })
-    overlay.addChild(this.createMenuButton((worldWidth - 184) / 2, 554, 184, 42, 'MAIN MENU', () => this.showMainMenu()))
+    overlay.addChild(this.createMenuButton((worldWidth - 184) / 2, 554, 184, 42, t('btn.mainMenu'), () => this.showMainMenu()))
     this.screenLayer.addChild(overlay)
   }
 
@@ -564,9 +581,207 @@ export class PixiGame {
     this.speedModeIndex = 0
     this.drawPauseButton()
     this.drawSpeedButton()
+    this.speedButton.visible = false
+    this.pauseButton.visible = false
+    this.screen = 'ready'
+    this.showReadyScreen()
+  }
+
+  private showReadyScreen(): void {
+    const snapshot = this.world.snapshot()
+    const accent = this.currentLevelAccent()
+
+    const overlay = new Container()
+    const shade = new Graphics()
+    shade.rect(0, 0, worldWidth, worldHeight).fill({ color: 0x030607, alpha: 0.5 })
+    overlay.addChild(shade)
+
+    const panel = new Container()
+    panel.position.set((worldWidth - 408) / 2, 224)
+    const frame = new Graphics()
+    this.drawPanel(frame, 0, 0, 408, 208, 0x0a0f10, accent)
+    panel.addChild(frame)
+
+    const eyebrow = new Text({ text: t('ready.level', { n: snapshot.level }), style: this.labelStyle(accent, 14) })
+    eyebrow.anchor.set(0.5)
+    eyebrow.position.set(204, 46)
+    const title = new Text({ text: this.levelName(snapshot.level), style: this.titleStyle(32, 0xf5f5dc) })
+    title.anchor.set(0.5)
+    title.position.set(204, 84)
+    const prompt = new Text({ text: t('ready.prompt'), style: this.labelStyle(0xf5f5dc, 18) })
+    prompt.anchor.set(0.5)
+    prompt.position.set(204, 134)
+    panel.addChild(eyebrow, title, prompt)
+
+    panel.addChild(this.createMenuButton(120, 158, 168, 36, t('btn.start'), () => this.beginLevel()))
+
+    overlay.addChild(panel)
+    this.screenLayer.addChild(overlay)
+  }
+
+  private currentLevelAccent(): number {
+    return levels.find((level) => level.id === this.selectedLevelId)?.accentColor ?? 0x81f5e1
+  }
+
+  private beginLevel(): void {
+    if (this.screen !== 'ready') {
+      return
+    }
+    this.clearScreenLayer()
+    this.isPaused = false
     this.speedButton.visible = true
     this.pauseButton.visible = true
     this.screen = 'playing'
+  }
+
+  private levelName(id: number): string {
+    return t(`level.${id}.name`)
+  }
+
+  private levelSubtitle(id: number): string {
+    return t(`level.${id}.subtitle`)
+  }
+
+  private drawSettingsButton(): void {
+    for (const child of this.settingsButton.removeChildren()) {
+      child.destroy({ children: true })
+    }
+
+    const x = worldWidth - speedButtonPadding - speedButtonSize
+    const y = speedButtonPadding
+    this.settingsButton.position.set(x, y)
+    this.settingsButton.eventMode = 'static'
+    this.settingsButton.cursor = 'pointer'
+    this.settingsButton.removeAllListeners()
+    this.settingsButton.on('pointertap', () => {
+      this.audio.playUi()
+      this.toggleSettings()
+    })
+
+    const plate = new Graphics()
+    this.drawPanel(plate, 0, 0, speedButtonSize, speedButtonSize, 0x10181b, 0x81f5e1)
+    const icon = new Graphics()
+    const cx = speedButtonSize / 2
+    const cy = speedButtonSize / 2
+    for (let index = 0; index < 8; index += 1) {
+      const angle = (Math.PI / 4) * index
+      icon
+        .moveTo(cx + Math.cos(angle) * 8, cy + Math.sin(angle) * 8)
+        .lineTo(cx + Math.cos(angle) * 13, cy + Math.sin(angle) * 13)
+        .stroke({ color: 0xf5f5dc, width: 2, alpha: 0.95, cap: 'round' })
+    }
+    icon.circle(cx, cy, 6).stroke({ color: 0xf5f5dc, width: 2, alpha: 0.95 })
+    this.settingsButton.addChild(plate, icon)
+  }
+
+  private toggleSettings(): void {
+    if (this.isSettingsOpen) {
+      this.closeSettings()
+    } else {
+      this.openSettings()
+    }
+  }
+
+  private closeSettings(): void {
+    this.isSettingsOpen = false
+    for (const child of this.settingsLayer.removeChildren()) {
+      child.destroy({ children: true })
+    }
+  }
+
+  private openSettings(): void {
+    this.isSettingsOpen = true
+    for (const child of this.settingsLayer.removeChildren()) {
+      child.destroy({ children: true })
+    }
+
+    const shade = new Graphics()
+    shade.rect(0, 0, worldWidth, worldHeight).fill({ color: 0x030607, alpha: 0.6 })
+    shade.eventMode = 'static'
+    shade.on('pointertap', () => {
+      this.audio.playUi()
+      this.closeSettings()
+    })
+    this.settingsLayer.addChild(shade)
+
+    const panelWidth = 320
+    const panelHeight = 80 + locales.length * 50
+    const panel = new Container()
+    panel.position.set((worldWidth - panelWidth) / 2, 200)
+    const frame = new Graphics()
+    this.drawPanel(frame, 0, 0, panelWidth, panelHeight, 0x0a0f10, 0x81f5e1)
+    panel.addChild(frame)
+
+    const title = new Text({ text: t('settings.title'), style: this.titleStyle(28, 0xf5f5dc) })
+    title.anchor.set(0.5)
+    title.position.set(panelWidth / 2, 38)
+    const label = new Text({ text: t('settings.language'), style: this.smallStyle(0xb7bcae) })
+    label.position.set(24, 66)
+    panel.addChild(title, label)
+
+    const active = getLocale()
+    locales.forEach((locale, index) => {
+      panel.addChild(this.createLocaleButton(24, 86 + index * 50, panelWidth - 48, 40, locale, locale === active))
+    })
+
+    this.settingsLayer.addChild(panel)
+  }
+
+  private createLocaleButton(x: number, y: number, width: number, height: number, locale: Locale, active: boolean): Container {
+    const button = new Container()
+    button.position.set(x, y)
+    button.eventMode = 'static'
+    button.cursor = 'pointer'
+    button.on('pointertap', () => {
+      this.audio.playUi()
+      setLocale(locale)
+    })
+
+    const plate = new Graphics()
+    plate
+      .roundRect(0, 0, width, height, 6)
+      .fill(active ? 0x14323a : 0x10181b)
+      .stroke({ color: active ? 0x81f5e1 : 0x6ee7d8, width: active ? 2 : 1, alpha: active ? 0.95 : 0.5 })
+    const text = new Text({ text: localeNames[locale], style: this.labelStyle(active ? 0x81f5e1 : 0xf5f5dc, 15) })
+    text.anchor.set(0.5)
+    text.position.set(width / 2, height / 2)
+    button.addChild(plate, text)
+    return button
+  }
+
+  private onLocaleChanged(): void {
+    this.rebuildCurrentScreen()
+    if (this.isSettingsOpen) {
+      this.openSettings()
+    }
+  }
+
+  private rebuildCurrentScreen(): void {
+    switch (this.screen) {
+      case 'mainMenu':
+        this.showMainMenu()
+        break
+      case 'levelSelect':
+        this.showLevelSelect()
+        break
+      case 'ready':
+        this.clearScreenLayer()
+        this.showReadyScreen()
+        break
+      case 'playing':
+        if (this.isPaused) {
+          this.isPaused = false
+          this.showPauseMenu()
+        }
+        break
+      case 'victory':
+      case 'defeat': {
+        const status = this.screen
+        this.screen = 'playing'
+        this.showEndScreen(status)
+        break
+      }
+    }
   }
 
   private showEndScreen(status: Exclude<GameStatus, 'playing'>): void {
@@ -600,29 +815,29 @@ export class PixiGame {
     this.drawPanel(frame, 0, 0, 408, 282, 0x0a0f10, accent)
     panel.addChild(frame)
 
-    const title = new Text({ text: status === 'victory' ? 'VICTORY' : 'DEFEAT', style: this.titleStyle(42, accent) })
+    const title = new Text({ text: status === 'victory' ? t('end.victory') : t('end.defeat'), style: this.titleStyle(42, accent) })
     title.anchor.set(0.5)
     title.position.set(204, 56)
     const detail = new Text({
-      text: status === 'victory' ? `Wave ${snapshot.maxWave} completed` : 'Your sanity has been lost',
+      text: status === 'victory' ? t('end.victoryDetail', { n: snapshot.maxWave }) : t('end.defeatDetail'),
       style: this.labelStyle(0xf5f5dc, 16),
     })
     detail.anchor.set(0.5)
     detail.position.set(204, 98)
     const stats = new Text({
-      text: `Score ${snapshot.score}\nLevel ${snapshot.levelName}\nSanity ${snapshot.baseHp}`,
+      text: t('end.stats', { score: snapshot.score, level: this.levelName(snapshot.level), sanity: snapshot.baseHp }),
       style: this.smallStyle(0xd6d3c2),
     })
     stats.position.set(112, 128)
     panel.addChild(title, detail, stats)
 
-    const primaryLabel = status === 'victory' ? 'NEXT LEVEL' : 'RETRY'
+    const primaryLabel = status === 'victory' ? t('btn.nextLevel') : t('btn.retry')
     const primaryAction = status === 'victory'
       ? () => this.startNextLevel()
       : () => this.startLevel(this.selectedLevelId)
     panel.addChild(this.createMenuButton(32, 190, 344, 38, primaryLabel, primaryAction))
-    panel.addChild(this.createMenuButton(32, 238, 166, 34, 'LEVELS', () => this.showLevelSelect()))
-    panel.addChild(this.createMenuButton(210, 238, 166, 34, 'MENU', () => this.showMainMenu()))
+    panel.addChild(this.createMenuButton(32, 238, 166, 34, t('btn.levels'), () => this.showLevelSelect()))
+    panel.addChild(this.createMenuButton(210, 238, 166, 34, t('btn.menu'), () => this.showMainMenu()))
 
     overlay.addChild(panel)
     this.screenLayer.addChild(overlay)
@@ -652,14 +867,14 @@ export class PixiGame {
     this.drawPanel(frame, 0, 0, 408, 220, 0x0a0f10, 0x81f5e1)
     panel.addChild(frame)
 
-    const title = new Text({ text: 'PAUSED', style: this.titleStyle(40, 0xf5f5dc) })
+    const title = new Text({ text: t('pause.title'), style: this.titleStyle(40, 0xf5f5dc) })
     title.anchor.set(0.5)
     title.position.set(204, 58)
     panel.addChild(title)
 
-    panel.addChild(this.createMenuButton(32, 104, 344, 40, 'RESUME', () => this.resumeGame()))
-    panel.addChild(this.createMenuButton(32, 158, 166, 34, 'LEVELS', () => this.showLevelSelect()))
-    panel.addChild(this.createMenuButton(210, 158, 166, 34, 'MENU', () => this.showMainMenu()))
+    panel.addChild(this.createMenuButton(32, 104, 344, 40, t('btn.resume'), () => this.resumeGame()))
+    panel.addChild(this.createMenuButton(32, 158, 166, 34, t('btn.levels'), () => this.showLevelSelect()))
+    panel.addChild(this.createMenuButton(210, 158, 166, 34, t('btn.menu'), () => this.showMainMenu()))
 
     overlay.addChild(panel)
     this.screenLayer.addChild(overlay)
@@ -704,10 +919,10 @@ export class PixiGame {
 
     const number = new Text({ text: `0${level.id}`, style: this.titleStyle(30, locked ? 0x6b7280 : level.accentColor) })
     number.position.set(18, 16)
-    const name = new Text({ text: level.name, style: this.labelStyle(locked ? 0x8c948d : 0xf5f5dc, 17) })
+    const name = new Text({ text: this.levelName(level.id), style: this.labelStyle(locked ? 0x8c948d : 0xf5f5dc, 17) })
     name.position.set(72, 24)
     const subtitle = new Text({
-      text: level.subtitle,
+      text: this.levelSubtitle(level.id),
       style: new TextStyle({
         fontFamily: 'Inter, system-ui, sans-serif',
         fontSize: 12,
@@ -719,7 +934,7 @@ export class PixiGame {
       }),
     })
     subtitle.position.set(20, 66)
-    const waves = new Text({ text: `${level.maxWave} WAVES`, style: this.labelStyle(locked ? 0x6b7280 : level.accentColor, 13) })
+    const waves = new Text({ text: t('card.waves', { n: level.maxWave }), style: this.labelStyle(locked ? 0x6b7280 : level.accentColor, 13) })
     waves.position.set(20, 104)
     card.addChild(number, name, subtitle, waves)
 
@@ -728,7 +943,7 @@ export class PixiGame {
       lockOverlay.roundRect(0, 0, 232, 132, 7).fill({ color: 0x030607, alpha: 0.84 })
       lockOverlay.circle(188, 98, 15).stroke({ color: 0x9ca3af, width: 2, alpha: 0.74 })
       lockOverlay.rect(177, 96, 22, 16).fill({ color: 0x111827, alpha: 0.92 }).stroke({ color: 0x9ca3af, width: 2, alpha: 0.78 })
-      const lockedText = new Text({ text: 'LOCKED', style: this.labelStyle(0x9ca3af, 12) })
+      const lockedText = new Text({ text: t('card.locked'), style: this.labelStyle(0x9ca3af, 12) })
       lockedText.anchor.set(0.5)
       lockedText.position.set(116, 104)
       card.addChild(lockOverlay, lockedText)
@@ -822,6 +1037,13 @@ export class PixiGame {
 
     event.preventDefault()
     this.handleInputDown(this.toWorldFromEvent(event), -2)
+  }
+
+  private onKeyDown = (event: KeyboardEvent): void => {
+    if (event.key === 'Enter' && this.screen === 'ready') {
+      event.preventDefault()
+      this.beginLevel()
+    }
   }
 
   private handleInputDown(point: Vec2, _pointerId: number): void {
@@ -1002,22 +1224,22 @@ export class PixiGame {
     this.drawPanel(frame, 0, 0, 154, 126, 0x0b1113, this.towerColor(tower.kind))
     panel.addChild(frame)
 
-    const title = new Text({ text: `${tower.kind.toUpperCase()} L${tower.level}`, style: this.labelStyle(0xf5f5dc, 13) })
+    const title = new Text({ text: t('tower.title', { name: t(`tower.${tower.kind}`), level: tower.level }), style: this.labelStyle(0xf5f5dc, 13) })
     title.position.set(12, 10)
     panel.addChild(title)
 
     const upgradeCost = this.world.getTowerUpgradeCost(tower.id)
     if (upgradeCost !== null) {
-      panel.addChild(this.createActionButton(12, 38, 130, 32, `UP ${upgradeCost}`, 'upgrade'))
+      panel.addChild(this.createActionButton(12, 38, 130, 32, t('tower.upgrade', { cost: upgradeCost }), 'upgrade'))
       this.towerActionOptions.push({ action: 'upgrade', center: vec(x + 77, y + 54), width: 130, height: 32 })
     } else {
-      const max = new Text({ text: 'MAX LEVEL', style: this.smallStyle(0xa7f3d0) })
+      const max = new Text({ text: t('tower.maxLevel'), style: this.smallStyle(0xa7f3d0) })
       max.position.set(12, 46)
       panel.addChild(max)
     }
 
     const refund = this.world.getTowerRefund(tower.id)
-    panel.addChild(this.createActionButton(12, 82, 130, 32, `SELL ${refund}`, 'sell'))
+    panel.addChild(this.createActionButton(12, 82, 130, 32, t('tower.sell', { refund }), 'sell'))
     this.towerActionOptions.push({ action: 'sell', center: vec(x + 77, y + 98), width: 130, height: 32 })
     this.towerActionMenu.addChild(panel)
   }
