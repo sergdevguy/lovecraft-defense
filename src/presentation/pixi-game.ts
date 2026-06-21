@@ -17,12 +17,14 @@ import towerLanternShootUrl from '../assets/audio/tower_lantern_shoot.wav'
 import towerObeliskShootUrl from '../assets/audio/tower_obelisc_shoot.wav'
 import uiClickSoundUrl from '../assets/audio/ui-clicks.wav'
 import victorySoundUrl from '../assets/audio/win.wav'
-import type { GameFxEvent, GameSnapshot, GameSoundEvent, GameStatus, LevelConfig, TowerKind, TowerSlot } from '../domain/game'
-import { GameWorld, levels } from '../domain/game'
+import type { GameFxEvent, GameSnapshot, GameSoundEvent, GameStatus, LevelConfig, MonsterInfo, TowerInfo, TowerKind, TowerSlot } from '../domain/game'
+import { GameWorld, levels, monsterCatalog, towerCatalog } from '../domain/game'
 import type { Vec2 } from '../domain/geometry'
 import { distance, vec } from '../domain/geometry'
 import type { Locale } from '../i18n'
 import { getLocale, locales, localeNames, onLocaleChange, setLocale, t } from '../i18n'
+import type { TutorialAnchor, TutorialRect } from './tutorial'
+import { TutorialController } from './tutorial'
 
 const worldWidth = 850
 const worldHeight = 720
@@ -36,7 +38,7 @@ const towerMenuOptionHeight = 62
 const speedButtonSize = 42
 const speedButtonPadding = 20
 
-type ScreenState = 'mainMenu' | 'levelSelect' | 'ready' | 'playing' | 'victory' | 'defeat'
+type ScreenState = 'mainMenu' | 'levelSelect' | 'ready' | 'playing' | 'victory' | 'defeat' | 'help'
 type TowerAction = 'upgrade' | 'sell'
 type SoundName =
   | 'uiClick'
@@ -210,6 +212,9 @@ export class PixiGame {
   private readonly settingsButton = new Container()
   private readonly settingsLayer = new Container()
   private isSettingsOpen = false
+  private readonly tutorialLayer = new Container()
+  private tutorial: TutorialController | null = null
+  private helpFromPause = false
   private animTime = 0
   private readonly speedModes = [1, 2, 4] as const
   private screen: ScreenState = 'mainMenu'
@@ -262,11 +267,22 @@ export class PixiGame {
       this.screenLayer,
       this.settingsButton,
       this.settingsLayer,
+      this.tutorialLayer,
     )
     this.setupFilters()
     this.drawPauseButton()
     this.drawSpeedButton()
     this.drawSettingsButton()
+    this.tutorial = new TutorialController({
+      layer: this.tutorialLayer,
+      worldWidth,
+      worldHeight,
+      accent: 0x81f5e1,
+      t: (key) => t(key),
+      anchorOf: (anchor) => this.tutorialAnchor(anchor),
+      onFinish: () => this.completeTutorial(),
+      playClick: () => this.audio.playUi(),
+    })
     onLocaleChange(() => this.onLocaleChanged())
     this.showMainMenu()
     this.resize()
@@ -304,6 +320,7 @@ export class PixiGame {
     this.shakeMag = Math.max(0, this.shakeMag - dt * 42)
     this.signFlashTime = Math.max(0, this.signFlashTime - dt)
     this.render()
+    this.tutorial?.render(this.animTime)
     this.applyShake()
   }
 
@@ -327,7 +344,7 @@ export class PixiGame {
 
     this.drawFog()
 
-    if (this.screen === 'mainMenu') {
+    if (this.screen === 'mainMenu' || this.screen === 'help') {
       this.drawMenuBackground()
     } else {
       this.drawBackground()
@@ -1120,6 +1137,7 @@ export class PixiGame {
   private showMainMenu(): void {
     this.audio.stopTheme()
     this.screen = 'mainMenu'
+    this.tutorial?.cancel()
     this.clearScreenLayer()
     this.closeTowerMenu()
     this.closeTowerActionMenu()
@@ -1141,13 +1159,13 @@ export class PixiGame {
     subtitle.anchor.set(0.5)
     subtitle.position.set(180, 132)
     panel.addChild(title, subtitle)
-    panel.addChild(this.createMenuButton(94, 218, 172, 42, t('btn.start'), () => this.showLevelSelect()))
-    panel.addChild(this.createMenuButton(94, 268, 172, 42, t('btn.levels'), () => this.showLevelSelect()))
-    // panel.addChild(this.createMenuButton(94, 302, 172, 42, 'SETTINGS', () => undefined))
+    panel.addChild(this.createMenuButton(94, 212, 172, 42, t('btn.start'), () => this.showLevelSelect()))
+    panel.addChild(this.createMenuButton(94, 260, 172, 42, t('btn.levels'), () => this.showLevelSelect()))
+    panel.addChild(this.createMenuButton(94, 308, 172, 42, t('btn.howToPlay'), () => this.showHelp()))
 
     const note = new Text({ text: t('menu.note'), style: this.smallStyle(0xb7bcae) })
     note.anchor.set(0.5)
-    note.position.set(180, 370)
+    note.position.set(180, 384)
     panel.addChild(note)
 
     overlay.addChild(panel)
@@ -1157,6 +1175,7 @@ export class PixiGame {
   private showLevelSelect(): void {
     this.audio.stopTheme()
     this.screen = 'levelSelect'
+    this.tutorial?.cancel()
     this.clearScreenLayer()
     this.isPaused = false
     this.speedButton.visible = false
@@ -1179,6 +1198,138 @@ export class PixiGame {
     })
     overlay.addChild(this.createMenuButton((worldWidth - 184) / 2, 554, 184, 42, t('btn.mainMenu'), () => this.showMainMenu()))
     this.screenLayer.addChild(overlay)
+  }
+
+  private showHelp(fromUserAction = true): void {
+    if (fromUserAction) {
+      this.helpFromPause = this.screen === 'playing' && this.isPaused
+    }
+    this.screen = 'help'
+    this.clearScreenLayer()
+    this.closeTowerMenu()
+    this.closeTowerActionMenu()
+
+    const overlay = this.screenOverlay()
+
+    const title = new Text({ text: t('help.title'), style: this.titleStyle(34, 0xf5f5dc) })
+    title.anchor.set(0.5, 0)
+    title.position.set(worldWidth / 2, 26)
+    overlay.addChild(title)
+
+    const goalHeading = new Text({ text: t('help.goalHeading'), style: this.labelStyle(0x81f5e1, 14) })
+    goalHeading.position.set(40, 76)
+    const goalText = new Text({
+      text: t('help.goalText'),
+      style: new TextStyle({ fontFamily: 'Inter, system-ui, sans-serif', fontSize: 13, fill: 0xb7bcae, lineHeight: 18, wordWrap: true, wordWrapWidth: 770 }),
+    })
+    goalText.position.set(40, 96)
+    overlay.addChild(goalHeading, goalText)
+
+    const cardW = 256
+    const gap = 16
+    const startX = (worldWidth - (cardW * 3 + gap * 2)) / 2
+
+    const towersHeading = new Text({ text: t('help.towersHeading'), style: this.labelStyle(0x81f5e1, 14) })
+    towersHeading.position.set(40, 146)
+    overlay.addChild(towersHeading)
+    const towerKinds: TowerKind[] = ['lantern', 'obelisk', 'idol']
+    towerKinds.forEach((kind, index) => {
+      overlay.addChild(this.drawTowerHelpCard(towerCatalog[kind], startX + index * (cardW + gap), 166, cardW, 148))
+    })
+
+    const enemiesHeading = new Text({ text: t('help.enemiesHeading'), style: this.labelStyle(0x81f5e1, 14) })
+    enemiesHeading.position.set(40, 336)
+    overlay.addChild(enemiesHeading)
+    const monsterKinds: MonsterInfo['kind'][] = ['cultist', 'deepOne', 'shoggoth']
+    monsterKinds.forEach((kind, index) => {
+      overlay.addChild(this.drawMonsterHelpCard(monsterCatalog[kind], startX + index * (cardW + gap), 356, cardW, 148))
+    })
+
+    overlay.addChild(this.createMenuButton((worldWidth - 184) / 2, 546, 184, 42, t('btn.back'), () => this.closeHelp()))
+    this.screenLayer.addChild(overlay)
+  }
+
+  private closeHelp(): void {
+    if (this.helpFromPause) {
+      this.isPaused = false
+      this.screen = 'playing'
+      this.showPauseMenu()
+      return
+    }
+    this.showMainMenu()
+  }
+
+  private drawTowerHelpCard(info: TowerInfo, x: number, y: number, width: number, height: number): Container {
+    const card = new Container()
+    card.position.set(x, y)
+    const color = this.towerColor(info.kind)
+    const frame = new Graphics()
+    this.drawPanel(frame, 0, 0, width, height, 0x0b1113, color)
+    card.addChild(frame)
+
+    const icon = new Graphics()
+    this.drawTowerIcon(icon, info.kind, 42, 52, 42)
+    card.addChild(icon)
+
+    const name = new Text({ text: t(`tower.${info.kind}`), style: this.labelStyle(0xf5f5dc, 15) })
+    name.position.set(76, 14)
+    const desc = new Text({
+      text: t(`help.tower.${info.kind}`),
+      style: new TextStyle({ fontFamily: 'Inter, system-ui, sans-serif', fontSize: 11, fill: 0xb7bcae, lineHeight: 14, wordWrap: true, wordWrapWidth: width - 88 }),
+    })
+    desc.position.set(76, 36)
+    card.addChild(name, desc)
+
+    const stats = [
+      `${t('help.dmg')} ${info.damage}    ${t('help.range')} ${info.range}`,
+      `${t('help.rate')} ${info.fireRate}s    ${t('help.cost')} ${info.cost}`,
+    ]
+    if (info.splashRadius > 0) {
+      stats.push(`${t('help.splash')} ${info.splashRadius}`)
+    }
+    stats.forEach((line, index) => {
+      const text = new Text({ text: line, style: this.smallStyle(0xd6d3c2) })
+      text.position.set(14, 92 + index * 17)
+      card.addChild(text)
+    })
+    return card
+  }
+
+  private drawMonsterHelpCard(info: MonsterInfo, x: number, y: number, width: number, height: number): Container {
+    const card = new Container()
+    card.position.set(x, y)
+    const color = info.kind === 'cultist' ? 0x86efac : info.kind === 'deepOne' ? 0x67e8f9 : 0xf0abfc
+    const frame = new Graphics()
+    this.drawPanel(frame, 0, 0, width, height, 0x0b1113, color)
+    card.addChild(frame)
+
+    // упрощённая иконка врага
+    const icon = new Graphics()
+    const radius = info.kind === 'shoggoth' ? 24 : 18
+    icon.circle(42, 50, radius).fill({ color: 0x0a1112, alpha: 0.98 }).stroke({ color, width: 2, alpha: 0.9 })
+    icon.circle(42 - 5, 46, 2.6).fill(color)
+    icon.circle(42 + 5, 46, 2.6).fill(color)
+    card.addChild(icon)
+
+    const name = new Text({ text: t(`monster.${info.kind}`), style: this.labelStyle(0xf5f5dc, 15) })
+    name.position.set(76, 14)
+    const desc = new Text({
+      text: t(`help.monster.${info.kind}`),
+      style: new TextStyle({ fontFamily: 'Inter, system-ui, sans-serif', fontSize: 11, fill: 0xb7bcae, lineHeight: 14, wordWrap: true, wordWrapWidth: width - 88 }),
+    })
+    desc.position.set(76, 36)
+    card.addChild(name, desc)
+
+    const stats = [
+      `${t('help.hp')} ${info.hp}    ${t('help.speed')} ${info.speed}`,
+      `${t('help.reward')} ${info.reward}    ${t('help.sanity')} ${info.baseDamage}`,
+    ]
+    stats.forEach((line, index) => {
+      const text = new Text({ text: line, style: this.smallStyle(0xd6d3c2) })
+      text.position.set(14, 96 + index * 17)
+      card.addChild(text)
+    })
+    return card
   }
 
   private startLevel(levelId: number): void {
@@ -1205,6 +1356,12 @@ export class PixiGame {
     this.pauseButton.visible = false
     this.screen = 'ready'
     this.showReadyScreen()
+
+    // Туториал — авто при первом входе на уровень 1.
+    this.tutorial?.cancel()
+    if (levelId === 1 && !this.isTutorialDone()) {
+      this.tutorial?.start()
+    }
   }
 
   // Фаза подготовки: поле открыто для постройки башен, волна стартует по ENTER.
@@ -1250,6 +1407,65 @@ export class PixiGame {
     this.speedButton.visible = true
     this.pauseButton.visible = true
     this.screen = 'playing'
+    this.tutorial?.notify('waveStarted')
+  }
+
+  private isTutorialDone(): boolean {
+    try {
+      return localStorage.getItem('lovecraft-defense.tutorialDone') === '1'
+    } catch {
+      return false
+    }
+  }
+
+  private completeTutorial(): void {
+    try {
+      localStorage.setItem('lovecraft-defense.tutorialDone', '1')
+    } catch {
+      // ignore
+    }
+  }
+
+  // Координаты подсвечиваемого элемента для каждого шага туториала (мировые координаты).
+  private tutorialAnchor(anchor: TutorialAnchor): TutorialRect | null {
+    const snapshot = this.world.snapshot()
+    const square = (x: number, y: number, r: number): TutorialRect => ({ x: x - r, y: y - r, w: r * 2, h: r * 2 })
+
+    if (anchor === 'base') {
+      const portal = snapshot.path[snapshot.path.length - 1]
+      return square(portal.x, portal.y, 50)
+    }
+    if (anchor === 'freeSlot') {
+      const slot = snapshot.towerSlots.find((candidate) => !candidate.occupiedBy) ?? snapshot.towerSlots[0]
+      return slot ? square(slot.position.x, slot.position.y, 30) : null
+    }
+    if (anchor === 'towerMenu') {
+      const slot = snapshot.towerSlots.find((candidate) => candidate.id === this.activeTowerMenuSlotId)
+      if (slot) {
+        return square(slot.position.x, slot.position.y, towerMenuRadius + 10)
+      }
+      const free = snapshot.towerSlots.find((candidate) => !candidate.occupiedBy)
+      return free ? square(free.position.x, free.position.y, 30) : null
+    }
+    if (anchor === 'banner') {
+      const bannerWidth = 560
+      const bx = (worldWidth - bannerWidth) / 2
+      const by = playRect.y + playRect.height + playFramePadding + 4
+      return { x: bx, y: by, w: bannerWidth, h: 52 }
+    }
+    if (anchor === 'monster') {
+      const monster = snapshot.monsters[0]
+      return monster ? square(monster.position.x, monster.position.y, 24) : null
+    }
+    if (anchor === 'tower') {
+      const tower = snapshot.towers[0]
+      return tower ? square(tower.position.x, tower.position.y, 30) : null
+    }
+    // controls — кнопки паузы и скорости в правом нижнем углу
+    const right = worldWidth - speedButtonPadding
+    const left = worldWidth - speedButtonPadding - speedButtonSize * 2 - 10
+    const top = worldHeight - speedButtonPadding - speedButtonSize
+    return { x: left, y: top, w: right - left, h: speedButtonSize }
   }
 
   private levelName(id: number): string {
@@ -1392,6 +1608,9 @@ export class PixiGame {
           this.showPauseMenu()
         }
         break
+      case 'help':
+        this.showHelp(false)
+        break
       case 'victory':
       case 'defeat': {
         const status = this.screen
@@ -1409,6 +1628,7 @@ export class PixiGame {
 
     this.screen = status
     this.isPaused = false
+    this.tutorial?.cancel()
     this.speedButton.visible = false
     this.pauseButton.visible = false
     this.closeTowerMenu()
@@ -1480,19 +1700,20 @@ export class PixiGame {
     overlay.addChild(shade)
 
     const panel = new Container()
-    panel.position.set((worldWidth - 408) / 2, 218)
+    panel.position.set((worldWidth - 408) / 2, 204)
     const frame = new Graphics()
-    this.drawPanel(frame, 0, 0, 408, 220, 0x0a0f10, 0x81f5e1)
+    this.drawPanel(frame, 0, 0, 408, 262, 0x0a0f10, 0x81f5e1)
     panel.addChild(frame)
 
     const title = new Text({ text: t('pause.title'), style: this.titleStyle(40, 0xf5f5dc) })
     title.anchor.set(0.5)
-    title.position.set(204, 58)
+    title.position.set(204, 54)
     panel.addChild(title)
 
-    panel.addChild(this.createMenuButton(32, 104, 344, 40, t('btn.resume'), () => this.resumeGame()))
-    panel.addChild(this.createMenuButton(32, 158, 166, 34, t('btn.levels'), () => this.showLevelSelect()))
-    panel.addChild(this.createMenuButton(210, 158, 166, 34, t('btn.menu'), () => this.showMainMenu()))
+    panel.addChild(this.createMenuButton(32, 98, 344, 40, t('btn.resume'), () => this.resumeGame()))
+    panel.addChild(this.createMenuButton(32, 148, 344, 34, t('btn.howToPlay'), () => this.showHelp()))
+    panel.addChild(this.createMenuButton(32, 196, 166, 34, t('btn.levels'), () => this.showLevelSelect()))
+    panel.addChild(this.createMenuButton(210, 196, 166, 34, t('btn.menu'), () => this.showMainMenu()))
 
     overlay.addChild(panel)
     this.screenLayer.addChild(overlay)
@@ -1674,6 +1895,11 @@ export class PixiGame {
       return
     }
 
+    // На info-шагах туториала поле заблокировано — доступны только кнопки карточки.
+    if (this.tutorial?.isActive() && !this.tutorial.allowsGameInput()) {
+      return
+    }
+
     // Кнопки паузы/скорости активны только во время волны.
     if (this.screen === 'playing') {
       if (this.pauseButtonAt(point)) {
@@ -1706,6 +1932,7 @@ export class PixiGame {
       this.audio.playUi()
       if (this.world.buildTower(this.activeTowerMenuSlotId, menuOption)) {
         this.closeTowerMenu()
+        this.tutorial?.notify('towerBuilt')
       }
       return
     }
@@ -1767,6 +1994,7 @@ export class PixiGame {
     this.closeTowerActionMenu()
     this.closeTowerMenu()
     this.activeTowerMenuSlotId = slot.id
+    this.tutorial?.notify('slotOpened')
 
     const ring = new Graphics()
     ring
